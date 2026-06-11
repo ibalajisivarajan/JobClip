@@ -1,87 +1,44 @@
-# Cloud-First Deployment Guide
+# JobClip Deployment Guide
 
-JobClip V1 is intended to run cloud-first:
+## Vercel Setup
 
-- Private GitHub repository.
-- Vercel-hosted web dashboard.
-- Supabase Auth and Postgres.
-- Chrome extension loaded unpacked for now.
+1. Go to https://vercel.com/new
+2. Import GitHub repository: ibalajisivarajan/JobClip
+3. Set Root Directory to: web
+4. Set Framework Preset to: Next.js
+5. Add these Environment Variables:
+   - NEXT_PUBLIC_SUPABASE_URL = https://ojwktaxfmpwjouycbjcz.supabase.co
+   - NEXT_PUBLIC_SUPABASE_ANON_KEY = [paste anon key]
+   - NEXT_PUBLIC_SITE_URL = https://[your-vercel-domain].vercel.app
+6. Click Deploy.
 
-Local dashboard execution is optional for development only and is not the primary setup path.
+## After Deploy — Supabase Auth URLs to add
 
-## Primary setup path
+In Supabase → Authentication → URL Configuration → Redirect URLs, add:
+- https://[your-vercel-domain].vercel.app/auth/callback
 
-1. Merge the PR to `main` in the private GitHub repository.
-2. Import the private GitHub repository into Vercel.
-3. Set the Vercel root directory to `web`.
-4. Add Vercel environment variables:
-   - `NEXT_PUBLIC_SUPABASE_URL`
-   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-   - `NEXT_PUBLIC_SITE_URL=https://<vercel-domain>`
-5. Deploy to Vercel.
-6. Add the Vercel auth callback URL to Supabase Auth redirect URLs:
-   - `https://<vercel-domain>/auth/callback`
-7. Test dashboard login on Vercel.
-8. Load the Chrome extension unpacked.
-9. Add the extension redirect URL to Supabase Auth redirect URLs:
-   - `https://<extension-id>.chromiumapp.org/auth`
-10. Configure `extension/config.js` with:
-    - Supabase Project URL.
-    - Supabase anon public key.
-    - Dashboard Vercel URL.
-11. Test extension login, capture, save, and dashboard visibility.
+In Supabase → Authentication → URL Configuration → Site URL, set:
+- https://[your-vercel-domain].vercel.app
 
-## Supabase setup
+## Acceptance Test Checklist
 
-1. Apply `supabase/001_create_jobs.sql`.
-2. Confirm RLS is enabled on `public.jobs`.
-3. Confirm RLS policies enforce `auth.uid() = user_id`.
-4. Enable the Google Auth provider.
-5. Configure Google provider client ID and secret in Supabase only.
-6. Add the Vercel callback URL: `https://<vercel-domain>/auth/callback`.
-7. After loading the unpacked extension, add the extension callback URL: `https://<extension-id>.chromiumapp.org/auth`.
+- [ ] Vercel deployment succeeds (green build)
+- [ ] https://[domain]/login shows Google sign-in button
+- [ ] Unauthenticated visit to /dashboard/jobs redirects to /login
+- [ ] Google login completes and redirects to /dashboard/jobs
+- [ ] Signed-in user sees jobs dashboard
+- [ ] Sign out blocks dashboard access
 
-Do not use or expose a Supabase service role key in Vercel public env vars, extension config, frontend code, or the committed repo.
+## Chrome Extension Setup (after dashboard is live)
 
-## Vercel setup
-
-1. Import the private GitHub repository into Vercel.
-2. Set root directory to `web`.
-3. Configure environment variables:
-   - `NEXT_PUBLIC_SUPABASE_URL`
-   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-   - `NEXT_PUBLIC_SITE_URL=https://<vercel-domain>`
-4. Deploy.
-5. Open `https://<vercel-domain>` and confirm it redirects signed-out users to `/login`.
-6. Complete Google sign-in and confirm the dashboard loads.
-
-## Chrome extension setup
-
-1. Copy `extension/config.example.js` to `extension/config.js`.
-2. Fill in Supabase URL, Supabase anon key, and the Vercel dashboard URL.
-3. Load `extension/` unpacked in `chrome://extensions`.
-4. Copy the extension ID.
-5. Add `https://<extension-id>.chromiumapp.org/auth` to Supabase Auth redirect URLs.
-6. Open a job posting page.
-7. Open the JobClip popup, sign in through Supabase/Google, capture, save, and verify the job appears in the Vercel dashboard.
-
-## Optional local developer path
-
-For development only, you may run the dashboard locally:
-
-```bash
-cd web
-npm install
-npm run dev
-```
-
-If testing local auth, set `NEXT_PUBLIC_SITE_URL=http://localhost:3000` in `web/.env.local` and add `http://localhost:3000/auth/callback` to Supabase Auth redirect URLs.
-
-## Release gate
-
-Do not release until:
-
-- The cloud-first acceptance test in `docs/TESTPLAN.md` passes.
-- `docs/QA_CHECKLIST.md` is complete.
-- Automated commands in `docs/TESTPLAN.md` pass in an environment with package registry access.
-- No V1 constraints are violated: no AI, no resume tailoring, no ATS scoring, no auto-apply, no background scraping, no service role key, and user-initiated capture only.
+1. Copy extension/config.example.js to extension/config.js
+2. Fill in:
+   - SUPABASE_URL: https://ojwktaxfmpwjouycbjcz.supabase.co
+   - SUPABASE_ANON_KEY: [paste anon key]
+   - DASHBOARD_URL: https://[your-vercel-domain].vercel.app
+3. Go to chrome://extensions → Enable Developer Mode → Load Unpacked → select extension/ folder
+4. Copy the Extension ID shown
+5. In Supabase → Auth → Redirect URLs, add:
+   - https://[extension-id].chromiumapp.org/auth
+6. Open a LinkedIn job page → click JobClip → sign in → capture → save
+7. Open dashboard and confirm job appears

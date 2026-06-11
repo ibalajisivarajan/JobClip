@@ -5,6 +5,7 @@ const test = require('node:test');
 
 const root = join(__dirname, '../..');
 const ignoredDirs = new Set(['.git', 'node_modules', '.next', '.vercel']);
+const ignoredFiles = new Set(['.env.local', '.env.development.local', '.env.test.local', '.env.production.local']);
 const allowedServiceRoleMentions = new Set([
   'README.md',
   'CLAUDE.md',
@@ -25,7 +26,7 @@ function walk(dir, files = []) {
     if (statSync(fullPath).isDirectory()) {
       if (!ignoredDirs.has(entry)) walk(fullPath, files);
     } else {
-      files.push(rel);
+      if (!ignoredFiles.has(entry)) files.push(rel);
     }
   }
   return files;
