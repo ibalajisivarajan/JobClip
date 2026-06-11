@@ -1,0 +1,99 @@
+'use client';
+
+import Link from 'next/link';
+import { useParams } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { createClient } from '@/lib/supabase';
+
+type Job = {
+  id: string;
+  company: string | null;
+  role_title: string | null;
+  job_description: string | null;
+  location: string | null;
+  remote_hybrid: string | null;
+  employment_type: string | null;
+  posted_date: string | null;
+  salary: string | null;
+  visa_sponsorship_clue: string | null;
+  source_url: string | null;
+  source_platform: string | null;
+  raw_text: string | null;
+  captured_at: string | null;
+};
+
+function DetailRow({ label, value }: { label: string; value?: string | null }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4">
+      <dt className="text-xs font-semibold uppercase tracking-wider text-slate-500">{label}</dt>
+      <dd className="mt-2 whitespace-pre-wrap text-sm text-slate-900">{value || '—'}</dd>
+    </div>
+  );
+}
+
+export default function JobDetailPage() {
+  const params = useParams<{ id: string }>();
+  const [job, setJob] = useState<Job | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function loadJob() {
+      const supabase = createClient();
+      const { data, error } = await supabase.from('jobs').select('*').eq('id', params.id).single();
+      if (error) {
+        setError(error.message);
+      } else {
+        setJob(data);
+      }
+      setLoading(false);
+    }
+
+    loadJob();
+  }, [params.id]);
+
+  if (loading) return <p className="text-slate-600">Loading job…</p>;
+  if (error) return <p className="text-red-600">{error}</p>;
+  if (!job) return <p className="text-slate-600">Job not found.</p>;
+
+  return (
+    <section>
+      <Link className="text-sm font-semibold text-blue-700 hover:underline" href="/dashboard/jobs">
+        ← Back to jobs
+      </Link>
+      <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <p className="text-sm font-medium text-slate-500">{job.company || 'Unknown company'}</p>
+        <h1 className="mt-2 text-3xl font-bold text-slate-950">{job.role_title || 'Untitled role'}</h1>
+        {job.source_url && (
+          <a className="mt-4 inline-block text-sm font-semibold text-blue-700 hover:underline" href={job.source_url} target="_blank">
+            Open original posting
+          </a>
+        )}
+      </div>
+
+      <dl className="mt-6 grid gap-4 md:grid-cols-2">
+        <DetailRow label="Company" value={job.company} />
+        <DetailRow label="Role Title" value={job.role_title} />
+        <DetailRow label="Location" value={job.location} />
+        <DetailRow label="Remote/Hybrid" value={job.remote_hybrid} />
+        <DetailRow label="Employment Type" value={job.employment_type} />
+        <DetailRow label="Posted Date" value={job.posted_date} />
+        <DetailRow label="Salary" value={job.salary} />
+        <DetailRow label="Visa Sponsorship Clue" value={job.visa_sponsorship_clue} />
+        <DetailRow label="Source URL" value={job.source_url} />
+        <DetailRow label="Source Platform" value={job.source_platform} />
+        <DetailRow label="Captured Date" value={job.captured_at ? new Date(job.captured_at).toLocaleString() : null} />
+      </dl>
+
+      <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
+        <h2 className="text-lg font-bold text-slate-950">Job Description</h2>
+        <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">{job.job_description || '—'}</p>
+      </div>
+
+      <details className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
+        <summary className="cursor-pointer text-lg font-bold text-slate-950">Raw Text</summary>
+        <p className="mt-3 whitespace-pre-wrap text-xs leading-5 text-slate-600">{job.raw_text || '—'}</p>
+      </details>
+    </section>
+  );
+}
