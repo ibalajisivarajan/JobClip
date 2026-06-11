@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "JobClip",
+  "description": "Save job postings to your private JobClip dashboard.",
+  "version": "0.1.0",
+  "permissions": ["activeTab", "scripting", "storage", "identity"],
+  "host_permissions": ["<all_urls>"],
+  "action": {
+    "default_title": "JobClip",
+    "default_popup": "popup.html"
+  }
+}

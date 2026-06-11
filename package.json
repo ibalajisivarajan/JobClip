@@ -1,0 +1,13 @@
+{
+  "name": "jobclip",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "check": "npm run check:json && npm run check:js && npm run test",
+    "check:json": "python -m json.tool extension/manifest.json >/dev/null && python -m json.tool web/package.json >/dev/null && python -m json.tool web/tsconfig.json >/dev/null && python -m json.tool package.json >/dev/null",
+    "check:js": "node --check extension/popup.js && node --check extension/extractors.js && node --check tests/extension/extractors.test.js && node --check tests/extension/popup-auth.test.js && node --check tests/security/no-secrets.test.js",
+    "test": "node --test tests/**/*.test.js",
+    "lint": "npm --prefix web run lint",
+    "build": "npm --prefix web run build"
+  }
+}
