@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>JobClip</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="popup">
+      <header>
+        <div>
+          <p class="eyebrow">JobClip</p>
+          <h1>Capture job</h1>
+        </div>
+        <a id="dashboardLink" href="#" target="_blank" rel="noreferrer">Dashboard</a>
+      </header>
+
+      <section id="signedOut" class="card hidden">
+        <p>Sign in with Google before saving jobs.</p>
+        <button id="signInButton">Sign in with Google</button>
+      </section>
+
+      <section id="signedIn" class="hidden">
+        <div id="status" class="status">Checking current tab…</div>
+        <article id="preview" class="card hidden">
+          <dl>
+            <div><dt>Company</dt><dd id="company">—</dd></div>
+            <div><dt>Role</dt><dd id="roleTitle">—</dd></div>
+            <div><dt>Location</dt><dd id="location">—</dd></div>
+            <div><dt>Source</dt><dd id="sourcePlatform">—</dd></div>
+            <div><dt>Description</dt><dd id="description">—</dd></div>
+          </dl>
+          <button id="saveButton">Save job</button>
+        </article>
+        <button id="signOutButton" class="secondary">Sign out</button>
+      </section>
+    </main>
+    <script src="config.js"></script>
+    <script src="extractors.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>
