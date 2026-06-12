@@ -1,15 +1,16 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.108.1';
+import { logUsage, calculateCost } from '../_shared/log-usage.ts';
 
 // Prompts loaded once at startup — edit the .txt files and redeploy to change behaviour.
-const TAILOR_SYSTEM = await Deno.readTextFile(new URL('./prompts/tailor.txt', import.meta.url));
-const SCORE_SYSTEM = await Deno.readTextFile(new URL('./prompts/score.txt', import.meta.url));
+const TAILOR_SYSTEM    = await Deno.readTextFile(new URL('./prompts/tailor.txt',    import.meta.url));
+const SCORE_SYSTEM     = await Deno.readTextFile(new URL('./prompts/score.txt',     import.meta.url));
 const QUESTIONS_SYSTEM = await Deno.readTextFile(new URL('./prompts/questions.txt', import.meta.url));
 
-const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
+const SUPABASE_URL     = Deno.env.get('SUPABASE_URL')      ?? '';
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
 const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY') ?? '';
-const MODEL = Deno.env.get('ANTHROPIC_MODEL') ?? 'claude-haiku-4-5-20251001';
+const MODEL            = Deno.env.get('ANTHROPIC_MODEL')    ?? 'claude-haiku-4-5-20251001';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -24,29 +25,87 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
-async function callClaude(system: string, userPrompt: string, maxTokens: number): Promise<string> {
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'x-api-key': ANTHROPIC_API_KEY,
-      'anthropic-version': '2023-06-01',
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: maxTokens,
-      system,
-      messages: [{ role: 'user', content: userPrompt }],
-    }),
-  });
+// Module-level supabase client used by the logger (service-role style, set per-request via closure).
+// The actual per-request client is passed into claudeCall as a parameter.
+// deno-lint-ignore no-explicit-any
+async function claudeCall(
+  supabase: any,
+  system: string,
+  userMessage: string,
+  callPurpose: string,
+  jobId: string | null,
+  userId: string | null,
+  maxTokens: number,
+): Promise<string> {
+  const startTime = Date.now();
 
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`Claude API ${response.status}: ${err.slice(0, 300)}`);
+  let httpStatus = 0;
+  let responseData: { content?: { text: string }[]; usage?: { input_tokens?: number; output_tokens?: number } } | null = null;
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        max_tokens: maxTokens,
+        system,
+        messages: [{ role: 'user', content: userMessage }],
+      }),
+    });
+
+    httpStatus = res.status;
+    const duration_ms = Date.now() - startTime;
+
+    responseData = await res.json() as typeof responseData;
+
+    const inputTokens  = responseData?.usage?.input_tokens  ?? 0;
+    const outputTokens = responseData?.usage?.output_tokens ?? 0;
+    const { input_cost_usd, output_cost_usd } = calculateCost(MODEL, inputTokens, outputTokens);
+
+    if (!res.ok) {
+      const errMsg = `Claude API error ${res.status}: ${JSON.stringify(responseData)}`;
+      await logUsage(supabase, {
+        agent_name: 'process-job', trigger_type: 'webhook',
+        job_id: jobId, user_id: userId,
+        model: MODEL, call_purpose: callPurpose,
+        input_tokens: inputTokens, output_tokens: outputTokens,
+        input_cost_usd, output_cost_usd,
+        http_status: httpStatus, duration_ms,
+        error_message: errMsg,
+      });
+      throw new Error(errMsg);
+    }
+
+    await logUsage(supabase, {
+      agent_name: 'process-job', trigger_type: 'webhook',
+      job_id: jobId, user_id: userId,
+      model: MODEL, call_purpose: callPurpose,
+      input_tokens: inputTokens, output_tokens: outputTokens,
+      input_cost_usd, output_cost_usd,
+      http_status: httpStatus, duration_ms,
+    });
+
+    return responseData?.content?.[0]?.text ?? '';
+
+  } catch (err) {
+    // Only log here if we haven't already logged above (i.e., non-HTTP error)
+    if (httpStatus === 0) {
+      const duration_ms = Date.now() - startTime;
+      await logUsage(supabase, {
+        agent_name: 'process-job', trigger_type: 'webhook',
+        job_id: jobId, user_id: userId,
+        model: MODEL, call_purpose: callPurpose,
+        http_status: 0, duration_ms,
+        error_message: String(err),
+      });
+    }
+    throw err;
   }
-
-  const data = await response.json() as { content: { text: string }[] };
-  return data.content[0].text;
 }
 
 serve(async (req: Request) => {
@@ -168,16 +227,24 @@ serve(async (req: Request) => {
       `Job Description:\n---\n${job.job_description ?? ''}\n---`;
 
     // Step 1: Tailor
-    const tailored = await callClaude(
+    const tailored = await claudeCall(
+      supabase,
       TAILOR_SYSTEM,
       `${jobCtx}\n\nMaster Resume (Markdown):\n---\n${resumeContent}\n---`,
+      'resume_tailor',
+      jobId,
+      user.id,
       8192,
     );
 
     // Step 2: Score
-    const scoreRaw = await callClaude(
+    const scoreRaw = await claudeCall(
+      supabase,
       SCORE_SYSTEM,
       `Job Description:\n---\n${job.job_description ?? ''}\n---\n\nTailored Resume:\n---\n${tailored}\n---`,
+      'ats_score',
+      jobId,
+      user.id,
       512,
     );
 
@@ -199,9 +266,13 @@ serve(async (req: Request) => {
     }
 
     // Step 3: Questions
-    const questionsRaw = await callClaude(
+    const questionsRaw = await claudeCall(
+      supabase,
       QUESTIONS_SYSTEM,
       `Job Description:\n---\n${job.job_description ?? ''}\n---`,
+      'questions_generation',
+      jobId,
+      user.id,
       1024,
     );
 

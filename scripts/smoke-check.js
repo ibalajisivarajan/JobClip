@@ -116,6 +116,9 @@ const requiredFiles = [
   'web/app/dashboard/profile/page.tsx',
   'web/components/ResumeManager.tsx',
   'web/components/ApplyActions.tsx',
+  'supabase/003_api_usage.sql',
+  'supabase/functions/_shared/log-usage.ts',
+  'web/app/dashboard/usage/page.tsx',
 ];
 
 for (const rel of requiredFiles) {
