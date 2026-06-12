@@ -106,6 +106,9 @@ const requiredFiles = [
   'vercel.json',
   'web/app/auth/callback/route.ts',
   'supabase/001_create_jobs.sql',
+  'supabase/functions/process-job/prompts/tailor.txt',
+  'supabase/functions/process-job/prompts/score.txt',
+  'supabase/functions/process-job/prompts/questions.txt',
 ];
 
 for (const rel of requiredFiles) {
