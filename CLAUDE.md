@@ -74,14 +74,14 @@ npm run build
 
 If dependency installation is blocked in an environment, document the exact failure and still run dependency-free checks.
 
-## Release gate
+## Release Gate — Mandatory Before Every Push to Main
 
-A release is blocked unless:
-
-1. No hard constraints are violated.
-2. Security tests pass.
-3. Extractor tests pass.
-4. Web lint/typecheck/build pass in an environment with npm registry access.
-5. Manual dashboard and extension QA checklists pass.
-6. Supabase RLS policies are applied in the target project.
-7. Google, Supabase, Chrome extension, and Vercel redirect URLs are configured.
+1. Run from repo root: `npm run qa` — all must pass
+2. Self-review TESTPLAN.md for any changed behaviour
+3. Check these patterns in changed files:
+   a) Supabase client created without session cookies (must use createServerSupabaseClient or route handler pattern)
+   b) Auth callback writing cookies to cookieStore instead of response object
+   c) middleware.ts present instead of proxy.ts (Next.js 16 uses proxy.ts)
+   d) Any .env.local or config.js committed
+   e) Any service role key referenced anywhere
+4. Only then: commit and push
