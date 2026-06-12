@@ -136,10 +136,41 @@
               : '',
           };
         }
+
+        const job = candidates.find((item) => {
+          const type = item?.['@type'];
+          return type === 'JobPosting' || (Array.isArray(type) && type.includes('JobPosting'));
+        });
+
+        if (!job) continue;
+
+        const locationValue = Array.isArray(job.jobLocation) ? job.jobLocation[0] : job.jobLocation;
+        const address = locationValue?.address || {};
+        const cityRegion = [address.addressLocality, address.addressRegion, address.addressCountry]
+          .filter(Boolean)
+          .join(', ');
+
+        const salaryValue =
+          job.baseSalary?.value?.value ||
+          job.baseSalary?.value?.minValue ||
+          job.baseSalary?.value?.maxValue ||
+          '';
+
+        return {
+          company: job.hiringOrganization?.name || '',
+          role_title: job.title || '',
+          job_description: cleanText(String(job.description || '').replace(/<[^>]*>/g, ' ')),
+          location: cityRegion || job.applicantLocationRequirements?.name || '',
+          remote_hybrid: job.jobLocationType === 'TELECOMMUTE' ? 'Remote' : '',
+          employment_type: Array.isArray(job.employmentType) ? job.employmentType.join(', ') : job.employmentType || '',
+          posted_date: job.datePosted || '',
+          salary: salaryValue ? String(salaryValue) : '',
+        };
       } catch (error) {
         console.debug('JobClip ignored invalid JSON-LD', error);
       }
     }
+
     return null;
   }
 
@@ -219,6 +250,7 @@
       '#job-details',
       '.jobs-box__html-content',
       '.jobs-description-content__text',
+      '.jobs-box__html-content',
       '.show-more-less-html__markup',
       '[data-test-job-description]',
       '.job-details-jobs-unified-top-card__job-description',
@@ -280,14 +312,19 @@
 
       location: firstText([
         '[data-testid*="location"]',
-        '[class*="location"]',
         '[class*="job-location"]',
         '[data-qa="job-location"]',
-        '.posting-categories .location',
         '[data-automation-id="locations"]',
-        '.location',
+        '.posting-categories .location',
         '.job-location',
+        '.location',
+        '[class*="location"]',
       ]),
+
+      remote_hybrid: '',
+      employment_type: '',
+      posted_date: '',
+      salary: '',
     };
 
     return normalizeJob(Object.assign({}, jsonLd || common, { raw_text: raw }));
@@ -301,14 +338,14 @@
     var description = job.job_description || (options.allowRawFallback === false ? '' : raw);
     var combined = (job.role_title || '') + '\n' + (job.company || '') + '\n' + (job.location || '') + '\n' + description + '\n' + raw;
     return {
-      company: job.company || '',
-      role_title: job.role_title || '',
-      job_description: description.slice(0, 30000),
-      location: job.location || '',
+      company: cleanCompany(job.company || '', job.role_title || '') || '',
+      role_title: cleanTitle(job.role_title || ''),
+      job_description: description.slice(0, MAX_DESCRIPTION),
+      location: cleanInline(job.location || ''),
       remote_hybrid: job.remote_hybrid || detectRemote(combined),
       employment_type: job.employment_type || detectEmploymentType(combined),
-      posted_date: job.posted_date || '',
-      salary: job.salary || detectSalary(combined),
+      posted_date: cleanInline(job.posted_date || extractPostedDate(combined)),
+      salary: cleanInline(job.salary || detectSalary(combined)),
       visa_sponsorship_clue: job.visa_sponsorship_clue || detectVisa(combined),
       source_url: location.href,
       source_platform: sourcePlatform(),
