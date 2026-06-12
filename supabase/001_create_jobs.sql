@@ -82,3 +82,6 @@ create trigger set_jobs_updated_at
   before update on public.jobs
   for each row
   execute function public.set_updated_at();
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.jobs TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.jobs TO anon;
