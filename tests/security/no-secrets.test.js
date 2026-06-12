@@ -20,6 +20,8 @@ const allowedServiceRoleMentions = new Set([
   // SQL migration grants INSERT to service_role so the edge function logger can write usage rows.
   // This is a Postgres role grant, not a secret key — the actual secret lives in Supabase only.
   'supabase/003_api_usage.sql',
+  'supabase/005_audit_gap_fixes.sql',
+  'docs/AUDIT_REPORT.md',
 ]);
 
 function walk(dir, files = []) {

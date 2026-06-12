@@ -14,6 +14,9 @@ function makeClient(request: NextRequest) {
   );
 }
 
+const VALID_ROLE_TYPES = ['tpm', 'pm', 'scrum_master'] as const;
+type RoleType = typeof VALID_ROLE_TYPES[number];
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -43,7 +46,12 @@ export async function PUT(
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const body = await request.json() as { name?: string; content_md?: string; is_default?: boolean };
+  const body = await request.json() as {
+    name?: string;
+    content_md?: string;
+    role_type?: string;
+    is_default?: boolean;
+  };
 
   if (body.is_default) {
     await supabase.from('resumes').update({ is_default: false }).eq('user_id', user.id);
@@ -53,6 +61,9 @@ export async function PUT(
   if (body.name !== undefined) updates.name = body.name.trim();
   if (body.content_md !== undefined) updates.content_md = body.content_md;
   if (body.is_default !== undefined) updates.is_default = body.is_default;
+  if (body.role_type !== undefined && VALID_ROLE_TYPES.includes(body.role_type as RoleType)) {
+    updates.role_type = body.role_type as RoleType;
+  }
 
   const { data, error } = await supabase
     .from('resumes')

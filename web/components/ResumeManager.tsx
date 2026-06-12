@@ -2,10 +2,19 @@
 
 import { useState, useEffect, useCallback } from 'react';
 
+type RoleType = 'tpm' | 'pm' | 'scrum_master';
+
+const ROLE_TYPE_LABELS: Record<RoleType, string> = {
+  tpm: 'Technical Program Manager (TPM)',
+  pm: 'Project Manager (PM)',
+  scrum_master: 'Scrum Master',
+};
+
 type Resume = {
   id: string;
   name: string;
   content_md: string;
+  role_type: RoleType | null;
   is_default: boolean;
   created_at: string;
 };
@@ -18,18 +27,21 @@ export function ResumeManager() {
   const [mode, setMode] = useState<Mode>('list');
   const [editing, setEditing] = useState<Resume | null>(null);
   const [name, setName] = useState('');
+  const [roleType, setRoleType] = useState<RoleType>('tpm');
   const [contentMd, setContentMd] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    const res = await fetch('/api/resumes');
-    const json = await res.json() as { resumes?: Resume[] };
-    setResumes(json.resumes ?? []);
-    setLoading(false);
+  const load = useCallback(() => {
+    fetch('/api/resumes')
+      .then((res) => res.json() as Promise<{ resumes?: Resume[] }>)
+      .then((json) => {
+        setResumes(json.resumes ?? []);
+        setLoading(false);
+      });
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { load(); }, [load]);
 
   async function save() {
     setSaving(true);
@@ -37,10 +49,19 @@ export function ResumeManager() {
     try {
       const isFirst = resumes.length === 0 && mode === 'create';
       if (mode === 'create') {
+        const existingForType = resumes.find((r) => r.role_type === roleType);
+        if (existingForType) {
+          throw new Error(`You already have a ${ROLE_TYPE_LABELS[roleType]} resume. Edit or delete it first.`);
+        }
         const res = await fetch('/api/resumes', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: name.trim() || 'My Resume', content_md: contentMd, is_default: isFirst }),
+          body: JSON.stringify({
+            name: name.trim() || ROLE_TYPE_LABELS[roleType],
+            content_md: contentMd,
+            role_type: roleType,
+            is_default: isFirst,
+          }),
         });
         if (!res.ok) {
           const err = await res.json() as { error?: string };
@@ -50,14 +71,18 @@ export function ResumeManager() {
         const res = await fetch(`/api/resumes/${editing.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: name.trim() || editing.name, content_md: contentMd }),
+          body: JSON.stringify({
+            name: name.trim() || editing.name,
+            content_md: contentMd,
+            role_type: roleType,
+          }),
         });
         if (!res.ok) {
           const err = await res.json() as { error?: string };
           throw new Error(err.error ?? 'Failed to update');
         }
       }
-      await load();
+      load();
       cancel();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save resume');
@@ -66,23 +91,22 @@ export function ResumeManager() {
     }
   }
 
-  async function deleteResume(id: string) {
-    await fetch(`/api/resumes/${id}`, { method: 'DELETE' });
-    await load();
+  function deleteResume(id: string) {
+    fetch(`/api/resumes/${id}`, { method: 'DELETE' }).then(() => load());
   }
 
-  async function setDefault(id: string) {
-    await fetch(`/api/resumes/${id}`, {
+  function setDefault(id: string) {
+    fetch(`/api/resumes/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ is_default: true }),
-    });
-    await load();
+    }).then(() => load());
   }
 
   function startEdit(resume: Resume) {
     setEditing(resume);
     setName(resume.name);
+    setRoleType(resume.role_type ?? 'tpm');
     setContentMd(resume.content_md);
     setMode('edit');
     setError(null);
@@ -91,6 +115,7 @@ export function ResumeManager() {
   function startCreate() {
     setEditing(null);
     setName('');
+    setRoleType('tpm');
     setContentMd('');
     setMode('create');
     setError(null);
@@ -100,6 +125,7 @@ export function ResumeManager() {
     setMode('list');
     setEditing(null);
     setName('');
+    setRoleType('tpm');
     setContentMd('');
     setError(null);
   }
@@ -115,11 +141,23 @@ export function ResumeManager() {
           {mode === 'create' ? 'New Resume' : `Edit — ${editing?.name}`}
         </h2>
         <label className="mt-5 block">
+          <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Role Type</span>
+          <select
+            value={roleType}
+            onChange={(e) => setRoleType(e.target.value as RoleType)}
+            className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+          >
+            {(Object.entries(ROLE_TYPE_LABELS) as [RoleType, string][]).map(([val, label]) => (
+              <option key={val} value={val}>{label}</option>
+            ))}
+          </select>
+        </label>
+        <label className="mt-4 block">
           <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Resume Name</span>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. Software Engineer Resume"
+            placeholder={ROLE_TYPE_LABELS[roleType]}
             className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
           />
         </label>
@@ -161,7 +199,7 @@ export function ResumeManager() {
         <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center">
           <p className="text-slate-600">No resumes yet.</p>
           <p className="mt-1 text-sm text-slate-500">
-            Add your master resume in Markdown to enable AI tailoring on job postings.
+            Add up to three resumes — one per role type — to enable AI tailoring on job postings.
           </p>
         </div>
       )}
@@ -178,7 +216,12 @@ export function ResumeManager() {
                   </span>
                 )}
               </div>
-              <p className="mt-1 text-xs text-slate-500">
+              {resume.role_type && (
+                <p className="mt-0.5 text-xs font-medium text-slate-500">
+                  {ROLE_TYPE_LABELS[resume.role_type] ?? resume.role_type}
+                </p>
+              )}
+              <p className="mt-1 text-xs text-slate-400">
                 {resume.content_md.length.toLocaleString()} characters ·{' '}
                 {new Date(resume.created_at).toLocaleDateString()}
               </p>
@@ -186,7 +229,7 @@ export function ResumeManager() {
             <div className="flex shrink-0 gap-2">
               {!resume.is_default && (
                 <button
-                  onClick={() => void setDefault(resume.id)}
+                  onClick={() => setDefault(resume.id)}
                   className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
                 >
                   Set Default
@@ -199,7 +242,7 @@ export function ResumeManager() {
                 Edit
               </button>
               <button
-                onClick={() => void deleteResume(resume.id)}
+                onClick={() => deleteResume(resume.id)}
                 className="rounded-lg border border-red-100 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50"
               >
                 Delete
@@ -209,12 +252,14 @@ export function ResumeManager() {
         </div>
       ))}
 
-      <button
-        onClick={startCreate}
-        className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-4 text-sm font-semibold text-slate-700 hover:border-slate-400 hover:bg-slate-50"
-      >
-        + Add Resume
-      </button>
+      {resumes.length < 3 && (
+        <button
+          onClick={startCreate}
+          className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-4 text-sm font-semibold text-slate-700 hover:border-slate-400 hover:bg-slate-50"
+        >
+          + Add Resume
+        </button>
+      )}
     </div>
   );
 }
