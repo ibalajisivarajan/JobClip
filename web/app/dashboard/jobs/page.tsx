@@ -19,6 +19,9 @@ export default async function JobsPage() {
     .select('id, company, role_title, location, remote_hybrid, source_platform, captured_at, created_at')
     .order('created_at', { ascending: false });
 
+  console.log('Supabase error:', JSON.stringify(error));
+  console.log('User:', JSON.stringify((await (await createServerSupabaseClient()).auth.getUser()).data.user));
+
   return (
     <section>
       <div className="mb-6 flex items-end justify-between gap-4">
