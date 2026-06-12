@@ -1,6 +1,9 @@
+import type React from 'react';
 import Link from 'next/link';
 import { createServerSupabaseClient } from '@/lib/server';
 import { ApplyActions } from '@/components/ApplyActions';
+import { savedDateIso } from '@/lib/date';
+import { DateDisplay } from '@/components/DateDisplay';
 
 type Job = {
   id: string;
@@ -17,14 +20,17 @@ type Job = {
   source_platform: string | null;
   raw_text: string | null;
   captured_at: string | null;
+  created_at: string;
   ai_status: string | null;
 };
 
-function DetailRow({ label, value }: { label: string; value?: string | null }) {
+function DetailRow({ label, value, children }: { label: string; value?: string | null; children?: React.ReactNode }) {
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-4">
       <dt className="text-xs font-semibold uppercase tracking-wider text-slate-500">{label}</dt>
-      <dd className="mt-2 whitespace-pre-wrap text-sm text-slate-900">{value || '—'}</dd>
+      <dd className="mt-2 whitespace-pre-wrap text-sm text-slate-900">
+        {children ?? value ?? '—'}
+      </dd>
     </div>
   );
 }
@@ -92,7 +98,9 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
         <DetailRow label="Visa Sponsorship Clue" value={job.visa_sponsorship_clue} />
         <DetailRow label="Source URL" value={job.source_url} />
         <DetailRow label="Source Platform" value={job.source_platform} />
-        <DetailRow label="Captured Date" value={job.captured_at ? new Date(job.captured_at).toLocaleString() : null} />
+        <DetailRow label="Saved Date">
+          <DateDisplay iso={savedDateIso(job.captured_at, job.created_at)} />
+        </DetailRow>
       </dl>
 
       <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">

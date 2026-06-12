@@ -1,5 +1,7 @@
 import Link from 'next/link';
 import { createServerSupabaseClient } from '@/lib/server';
+import { savedDateIso } from '@/lib/date';
+import { DateDisplay } from '@/components/DateDisplay';
 
 type AiResult = {
   ats_score: number | null;
@@ -50,6 +52,7 @@ export default async function JobsPage() {
     .select(
       'id, company, role_title, location, remote_hybrid, source_platform, captured_at, created_at, ai_status, job_ai_results(ats_score, pipeline_status)',
     )
+    .order('captured_at', { ascending: false, nullsFirst: false })
     .order('created_at', { ascending: false });
 
   const jobs = (rawJobs ?? []) as unknown as Job[];
@@ -115,7 +118,7 @@ export default async function JobsPage() {
                   <AtsCell results={job.job_ai_results ?? []} aiStatus={job.ai_status} />
                 </td>
                 <td className="px-4 py-4 text-slate-600">
-                  {new Date(job.captured_at ?? job.created_at).toLocaleDateString()}
+                  <DateDisplay iso={savedDateIso(job.captured_at, job.created_at)} />
                 </td>
               </tr>
             ))}
