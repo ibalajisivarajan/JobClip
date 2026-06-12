@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { createClient } from '@/lib/supabase';
@@ -71,7 +72,7 @@ export function JobUrlForm() {
         data: { user },
         error: userError,
       } = await supabase.auth.getUser();
-      if (userError || !user) throw new Error('Authentication required. Sign in again before saving.');
+      if (userError || !user) throw new Error('Your session has expired. Please log in again.');
 
       const payload = {
         ...job,
@@ -141,7 +142,14 @@ export function JobUrlForm() {
           </label>
         )}
 
-        {error && <p className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+        {error && (
+          <p className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">
+            {error}
+            {error.includes('session has expired') && (
+              <> <Link href="/login" className="font-semibold underline">Log in</Link></>
+            )}
+          </p>
+        )}
         {message && <p className="mt-4 rounded-xl bg-amber-50 p-3 text-sm text-amber-800">{message}</p>}
 
         <div className="mt-6 flex justify-end">

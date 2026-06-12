@@ -30,10 +30,12 @@ function DetailRow({ label, value }: { label: string; value?: string | null }) {
 export default async function JobDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const supabase = await createServerSupabaseClient();
-  const { data: job, error } = await supabase.from('jobs').select('*').eq('id', id).single();
+  const { data, error } = await supabase.from('jobs').select('*').eq('id', id).single();
 
   if (error) return <p className="text-red-600">{error.message}</p>;
-  if (!job) return <p className="text-slate-600">Job not found.</p>;
+  if (!data) return <p className="text-slate-600">Job not found.</p>;
+
+  const job = data as Job;
 
   return (
     <section>
@@ -44,7 +46,12 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
         <p className="text-sm font-medium text-slate-500">{job.company || 'Unknown company'}</p>
         <h1 className="mt-2 text-3xl font-bold text-slate-950">{job.role_title || 'Untitled role'}</h1>
         {job.source_url && (
-          <a className="mt-4 inline-block text-sm font-semibold text-blue-700 hover:underline" href={job.source_url} target="_blank">
+          <a
+            className="mt-4 inline-block text-sm font-semibold text-blue-700 hover:underline"
+            href={job.source_url}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
             Open original posting
           </a>
         )}

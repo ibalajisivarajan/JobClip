@@ -10,20 +10,20 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@supabase/ssr": "latest",
-    "@supabase/supabase-js": "latest",
-    "next": "latest",
-    "react": "latest",
-    "react-dom": "latest"
+    "@supabase/ssr": "0.12.0",
+    "@supabase/supabase-js": "2.108.1",
+    "next": "16.2.9",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "latest",
-    "eslint": "latest",
-    "eslint-config-next": "latest",
-    "tailwindcss": "latest",
-    "typescript": "latest",
-    "@types/node": "latest",
-    "@types/react": "latest",
-    "@types/react-dom": "latest"
+    "@tailwindcss/postcss": "4.3.0",
+    "eslint": "9.39.4",
+    "eslint-config-next": "16.2.9",
+    "tailwindcss": "4.3.0",
+    "typescript": "6.0.3",
+    "@types/node": "25.9.3",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3"
   }
 }
