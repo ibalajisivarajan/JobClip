@@ -15,14 +15,22 @@ type Job = {
   source_platform: string | null;
   captured_at: string | null;
   created_at: string;
+  ai_status: string | null;
   job_ai_results: AiResult[];
 };
 
-function AtsCell({ results }: { results: AiResult[] }) {
+function AtsCell({ results, aiStatus }: { results: AiResult[]; aiStatus?: string | null }) {
+  if (aiStatus === 'disabled') {
+    return (
+      <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-400">
+        AI Off
+      </span>
+    );
+  }
   const r = results[0];
   if (!r) return <span className="text-slate-400">—</span>;
   if (r.pipeline_status === 'processing') return <span className="text-xs text-slate-500">Running…</span>;
-  if (r.pipeline_status === 'error') return <span className="text-xs text-red-500">Error</span>;
+  if (r.pipeline_status === 'error')      return <span className="text-xs text-red-500">Error</span>;
   if (r.pipeline_status === 'complete' && r.ats_score !== null) {
     const cls =
       r.ats_score >= 80
@@ -40,7 +48,7 @@ export default async function JobsPage() {
   const { data: rawJobs, error } = await supabase
     .from('jobs')
     .select(
-      'id, company, role_title, location, remote_hybrid, source_platform, captured_at, created_at, job_ai_results(ats_score, pipeline_status)',
+      'id, company, role_title, location, remote_hybrid, source_platform, captured_at, created_at, ai_status, job_ai_results(ats_score, pipeline_status)',
     )
     .order('created_at', { ascending: false });
 
@@ -104,7 +112,7 @@ export default async function JobsPage() {
                 <td className="px-4 py-4 text-slate-600">{job.remote_hybrid || '—'}</td>
                 <td className="px-4 py-4 text-slate-600">{job.source_platform || '—'}</td>
                 <td className="px-4 py-4">
-                  <AtsCell results={job.job_ai_results ?? []} />
+                  <AtsCell results={job.job_ai_results ?? []} aiStatus={job.ai_status} />
                 </td>
                 <td className="px-4 py-4 text-slate-600">
                   {new Date(job.captured_at ?? job.created_at).toLocaleDateString()}

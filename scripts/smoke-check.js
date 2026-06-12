@@ -119,6 +119,9 @@ const requiredFiles = [
   'supabase/003_api_usage.sql',
   'supabase/functions/_shared/log-usage.ts',
   'web/app/dashboard/usage/page.tsx',
+  'supabase/004_user_settings.sql',
+  'supabase/functions/_shared/ai-router.ts',
+  'web/app/api/settings/route.ts',
 ];
 
 for (const rel of requiredFiles) {

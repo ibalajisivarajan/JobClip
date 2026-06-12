@@ -4,6 +4,7 @@ export interface UsageLogParams {
   job_id?: string | null;
   user_id?: string | null;
   model: string;
+  provider?: 'anthropic' | 'groq' | 'gemini';
   call_purpose: string;
   input_tokens?: number;
   output_tokens?: number;
@@ -14,13 +15,21 @@ export interface UsageLogParams {
   error_message?: string;
 }
 
-// Pricing as of June 2026 — update when Anthropic changes pricing
-// Claude Sonnet 4.6: $3/M input, $15/M output
+// Pricing as of June 2026 — update when providers change pricing
 const PRICING: Record<string, { input: number; output: number }> = {
-  'claude-sonnet-4-6':      { input: 3.0,  output: 15.0 },
-  'claude-opus-4-6':        { input: 15.0, output: 75.0 },
-  'claude-haiku-4-5-20251001': { input: 0.8,  output: 4.0  },
-  'claude-haiku-4-5':       { input: 0.8,  output: 4.0  },
+  // Anthropic
+  'claude-sonnet-4-6':         { input: 3.00,  output: 15.00 },
+  'claude-opus-4-6':           { input: 15.00, output: 75.00 },
+  'claude-haiku-4-5':          { input: 0.80,  output: 4.00  },
+  'claude-haiku-4-5-20251001': { input: 0.80,  output: 4.00  },
+  // Groq
+  'llama-3.3-70b-versatile':   { input: 0.59,  output: 0.79  },
+  'llama-3.1-8b-instant':      { input: 0.05,  output: 0.08  },
+  'mixtral-8x7b-32768':        { input: 0.24,  output: 0.24  },
+  // Gemini
+  'gemini-2.0-flash':          { input: 0.10,  output: 0.40  },
+  'gemini-1.5-pro':            { input: 1.25,  output: 5.00  },
+  'gemini-1.5-flash':          { input: 0.075, output: 0.30  },
 };
 
 export function calculateCost(
@@ -44,6 +53,7 @@ export async function logUsage(supabaseClient: any, params: UsageLogParams): Pro
       job_id:          params.job_id          ?? null,
       user_id:         params.user_id         ?? null,
       model:           params.model,
+      provider:        params.provider        ?? 'anthropic',
       call_purpose:    params.call_purpose,
       input_tokens:    params.input_tokens    ?? null,
       output_tokens:   params.output_tokens   ?? null,

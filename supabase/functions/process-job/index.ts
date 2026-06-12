@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.108.1';
+import { callAI } from '../_shared/ai-router.ts';
 import { logUsage, calculateCost } from '../_shared/log-usage.ts';
 
 // Prompts loaded once at startup — edit the .txt files and redeploy to change behaviour.
@@ -7,10 +8,8 @@ const TAILOR_SYSTEM    = await Deno.readTextFile(new URL('./prompts/tailor.txt',
 const SCORE_SYSTEM     = await Deno.readTextFile(new URL('./prompts/score.txt',     import.meta.url));
 const QUESTIONS_SYSTEM = await Deno.readTextFile(new URL('./prompts/questions.txt', import.meta.url));
 
-const SUPABASE_URL     = Deno.env.get('SUPABASE_URL')      ?? '';
+const SUPABASE_URL      = Deno.env.get('SUPABASE_URL')      ?? '';
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
-const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY') ?? '';
-const MODEL            = Deno.env.get('ANTHROPIC_MODEL')    ?? 'claude-haiku-4-5-20251001';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -25,94 +24,10 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
-// Module-level supabase client used by the logger (service-role style, set per-request via closure).
-// The actual per-request client is passed into claudeCall as a parameter.
-// deno-lint-ignore no-explicit-any
-async function claudeCall(
-  supabase: any,
-  system: string,
-  userMessage: string,
-  callPurpose: string,
-  jobId: string | null,
-  userId: string | null,
-  maxTokens: number,
-): Promise<string> {
-  const startTime = Date.now();
-
-  let httpStatus = 0;
-  let responseData: { content?: { text: string }[]; usage?: { input_tokens?: number; output_tokens?: number } } | null = null;
-
-  try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: maxTokens,
-        system,
-        messages: [{ role: 'user', content: userMessage }],
-      }),
-    });
-
-    httpStatus = res.status;
-    const duration_ms = Date.now() - startTime;
-
-    responseData = await res.json() as typeof responseData;
-
-    const inputTokens  = responseData?.usage?.input_tokens  ?? 0;
-    const outputTokens = responseData?.usage?.output_tokens ?? 0;
-    const { input_cost_usd, output_cost_usd } = calculateCost(MODEL, inputTokens, outputTokens);
-
-    if (!res.ok) {
-      const errMsg = `Claude API error ${res.status}: ${JSON.stringify(responseData)}`;
-      await logUsage(supabase, {
-        agent_name: 'process-job', trigger_type: 'webhook',
-        job_id: jobId, user_id: userId,
-        model: MODEL, call_purpose: callPurpose,
-        input_tokens: inputTokens, output_tokens: outputTokens,
-        input_cost_usd, output_cost_usd,
-        http_status: httpStatus, duration_ms,
-        error_message: errMsg,
-      });
-      throw new Error(errMsg);
-    }
-
-    await logUsage(supabase, {
-      agent_name: 'process-job', trigger_type: 'webhook',
-      job_id: jobId, user_id: userId,
-      model: MODEL, call_purpose: callPurpose,
-      input_tokens: inputTokens, output_tokens: outputTokens,
-      input_cost_usd, output_cost_usd,
-      http_status: httpStatus, duration_ms,
-    });
-
-    return responseData?.content?.[0]?.text ?? '';
-
-  } catch (err) {
-    // Only log here if we haven't already logged above (i.e., non-HTTP error)
-    if (httpStatus === 0) {
-      const duration_ms = Date.now() - startTime;
-      await logUsage(supabase, {
-        agent_name: 'process-job', trigger_type: 'webhook',
-        job_id: jobId, user_id: userId,
-        model: MODEL, call_purpose: callPurpose,
-        http_status: 0, duration_ms,
-        error_message: String(err),
-      });
-    }
-    throw err;
-  }
-}
-
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: CORS_HEADERS });
   }
-
   if (req.method !== 'POST') {
     return json({ error: 'Method not allowed' }, 405);
   }
@@ -135,7 +50,7 @@ serve(async (req: Request) => {
 
   try {
     const body = await req.json() as { job_id?: string; resume_id?: string; role_category?: string };
-    jobId = body.job_id ?? '';
+    jobId      = body.job_id       ?? '';
     reqResumeId = body.resume_id;
     roleCategory = body.role_category ?? 'general';
   } catch {
@@ -143,17 +58,36 @@ serve(async (req: Request) => {
   }
 
   if (!jobId) return json({ error: 'job_id is required' }, 400);
-  if (!ANTHROPIC_API_KEY) return json({ error: 'ANTHROPIC_API_KEY is not configured' }, 500);
 
   // --- Fetch job ---
   const { data: job, error: jobError } = await supabase
     .from('jobs')
-    .select('id, role_title, company, job_description')
+    .select('id, user_id, role_title, company, job_description')
     .eq('id', jobId)
     .eq('user_id', user.id)
     .single();
 
   if (jobError || !job) return json({ error: 'Job not found or access denied' }, 404);
+
+  // --- Fetch user settings (kill switch + provider selection) ---
+  const { data: userSettings } = await supabase
+    .from('user_settings')
+    .select('ai_enabled, ai_provider, ai_model')
+    .eq('user_id', job.user_id)
+    .single();
+
+  const aiEnabled  = userSettings?.ai_enabled  ?? true;
+  const aiProvider = (userSettings?.ai_provider ?? 'anthropic') as 'anthropic' | 'groq' | 'gemini';
+  const aiModel    = userSettings?.ai_model    ?? 'claude-sonnet-4-6';
+
+  // --- Kill switch ---
+  if (!aiEnabled) {
+    await supabase
+      .from('jobs')
+      .update({ ai_status: 'disabled', ai_processed_at: new Date().toISOString() })
+      .eq('id', jobId);
+    return new Response('AI disabled for this user', { status: 200, headers: CORS_HEADERS });
+  }
 
   // --- Resolve resume ---
   let resumeId: string | undefined = reqResumeId;
@@ -175,7 +109,7 @@ serve(async (req: Request) => {
       .eq('is_default', true)
       .maybeSingle();
     resumeContent = defaultResume?.content_md ?? '';
-    resumeId = defaultResume?.id;
+    resumeId      = defaultResume?.id;
   }
 
   if (!resumeContent.trim()) {
@@ -205,9 +139,9 @@ serve(async (req: Request) => {
     const { data: newRow, error: insertErr } = await supabase
       .from('job_ai_results')
       .insert({
-        job_id: jobId,
-        user_id: user.id,
-        resume_id: resumeId ?? null,
+        job_id:          jobId,
+        user_id:         user.id,
+        resume_id:       resumeId ?? null,
         pipeline_status: 'processing',
       })
       .select('id')
@@ -216,6 +150,69 @@ serve(async (req: Request) => {
       return json({ error: `Failed to create result row: ${insertErr?.message}` }, 500);
     }
     resultId = newRow.id as string;
+  }
+
+  // --- Per-request AI call wrapper with usage logging ---
+  async function aiCall(
+    system: string,
+    userMessage: string,
+    callPurpose: string,
+    maxTokens: number,
+  ): Promise<string> {
+    const startTime = Date.now();
+    try {
+      const result = await callAI({
+        system,
+        userMessage,
+        model: aiModel,
+        provider: aiProvider,
+        maxTokens,
+      });
+      const duration_ms = Date.now() - startTime;
+      const { input_cost_usd, output_cost_usd } = calculateCost(
+        aiModel,
+        result.input_tokens,
+        result.output_tokens,
+      );
+
+      await logUsage(supabase, {
+        agent_name:    'process-job',
+        trigger_type:  'webhook',
+        job_id:        jobId,
+        user_id:       user.id,
+        model:         aiModel,
+        provider:      aiProvider,
+        call_purpose:  callPurpose,
+        input_tokens:  result.input_tokens,
+        output_tokens: result.output_tokens,
+        input_cost_usd,
+        output_cost_usd,
+        http_status:   result.http_status,
+        duration_ms,
+        error_message: result.http_status >= 400 ? `HTTP ${result.http_status}` : undefined,
+      });
+
+      if (result.http_status >= 400) throw new Error(`AI API error: HTTP ${result.http_status}`);
+      return result.text;
+    } catch (err) {
+      // Log network-level failures (http_status 0) that weren't already logged above
+      if (!(err instanceof Error && err.message.startsWith('AI API error:'))) {
+        const duration_ms = Date.now() - startTime;
+        await logUsage(supabase, {
+          agent_name:   'process-job',
+          trigger_type: 'webhook',
+          job_id:       jobId,
+          user_id:      user.id,
+          model:        aiModel,
+          provider:     aiProvider,
+          call_purpose: callPurpose,
+          http_status:  0,
+          duration_ms,
+          error_message: String(err),
+        });
+      }
+      throw err;
+    }
   }
 
   // --- Run pipeline ---
@@ -227,30 +224,24 @@ serve(async (req: Request) => {
       `Job Description:\n---\n${job.job_description ?? ''}\n---`;
 
     // Step 1: Tailor
-    const tailored = await claudeCall(
-      supabase,
+    const tailored = await aiCall(
       TAILOR_SYSTEM,
       `${jobCtx}\n\nMaster Resume (Markdown):\n---\n${resumeContent}\n---`,
       'resume_tailor',
-      jobId,
-      user.id,
       8192,
     );
 
     // Step 2: Score
-    const scoreRaw = await claudeCall(
-      supabase,
+    const scoreRaw = await aiCall(
       SCORE_SYSTEM,
       `Job Description:\n---\n${job.job_description ?? ''}\n---\n\nTailored Resume:\n---\n${tailored}\n---`,
       'ats_score',
-      jobId,
-      user.id,
       512,
     );
 
     let atsScore: number | null = null;
-    let keywordGaps: string[] = [];
-    let atsSummary = '';
+    let keywordGaps: string[]   = [];
+    let atsSummary              = '';
 
     try {
       const scoreJson = JSON.parse(scoreRaw.trim()) as {
@@ -258,21 +249,18 @@ serve(async (req: Request) => {
         keyword_gaps?: unknown;
         summary?: unknown;
       };
-      if (typeof scoreJson.score === 'number') atsScore = scoreJson.score;
-      if (Array.isArray(scoreJson.keyword_gaps)) keywordGaps = scoreJson.keyword_gaps as string[];
-      if (typeof scoreJson.summary === 'string') atsSummary = scoreJson.summary;
+      if (typeof scoreJson.score === 'number')             atsScore    = scoreJson.score;
+      if (Array.isArray(scoreJson.keyword_gaps))            keywordGaps = scoreJson.keyword_gaps as string[];
+      if (typeof scoreJson.summary === 'string')            atsSummary  = scoreJson.summary;
     } catch {
       // Score parsing failed — continue without score
     }
 
     // Step 3: Questions
-    const questionsRaw = await claudeCall(
-      supabase,
+    const questionsRaw = await aiCall(
       QUESTIONS_SYSTEM,
       `Job Description:\n---\n${job.job_description ?? ''}\n---`,
       'questions_generation',
-      jobId,
-      user.id,
       1024,
     );
 
@@ -287,14 +275,14 @@ serve(async (req: Request) => {
     const { data: saved } = await supabase
       .from('job_ai_results')
       .update({
-        pipeline_status: 'complete',
+        pipeline_status:    'complete',
         tailored_resume_md: tailored,
-        ats_score: atsScore,
-        keyword_gaps: keywordGaps,
-        ats_summary: atsSummary,
+        ats_score:          atsScore,
+        keyword_gaps:       keywordGaps,
+        ats_summary:        atsSummary,
         questions,
-        error_message: null,
-        resume_id: resumeId ?? null,
+        error_message:      null,
+        resume_id:          resumeId ?? null,
       })
       .eq('id', resultId)
       .select()
