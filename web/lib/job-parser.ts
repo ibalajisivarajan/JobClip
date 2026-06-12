@@ -241,10 +241,10 @@ function parseJsonLdJobPosting(html: string): Partial<ParsedJob> | null {
 
 function parseLinkedInHtml(html: string, sourceUrl: string): ParseResult {
   const raw = stripHtml(html);
-  const role = firstHtmlValue(html, [() => bySelectorClass(html, 'jobs-unified-top-card__job-title'), () => bySelectorClass(html, 'top-card-layout__title'), () => stripHtml(html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1] || '')]);
-  const company = firstHtmlValue(html, [() => bySelectorClass(html, 'jobs-unified-top-card__company-name'), () => bySelectorClass(html, 'topcard__org-name-link'), () => metaContent(html, 'og:site_name')]);
-  const location = firstHtmlValue(html, [() => bySelectorClass(html, 'jobs-unified-top-card__bullet'), () => bySelectorClass(html, 'topcard__flavor--bullet')]);
-  const description = firstHtmlValue(html, [() => bySelectorClass(html, 'jobs-description-content__text'), () => bySelectorClass(html, 'show-more-less-html__markup'), () => bySelectorId(html, 'job-details')]);
+  const role = firstHtmlValue(html, [() => bySelectorClass(html, 'job-details-jobs-unified-top-card__job-title'), () => bySelectorClass(html, 'jobs-unified-top-card__job-title'), () => bySelectorClass(html, 'top-card-layout__title'), () => stripHtml(html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1] || '')]);
+  const company = firstHtmlValue(html, [() => bySelectorClass(html, 'job-details-jobs-unified-top-card__company-name'), () => bySelectorClass(html, 'jobs-unified-top-card__company-name'), () => bySelectorClass(html, 'topcard__org-name-link'), () => metaContent(html, 'og:site_name')]);
+  const location = firstHtmlValue(html, [() => bySelectorClass(html, 'tvm__text'), () => bySelectorClass(html, 'job-details-jobs-unified-top-card__bullet'), () => bySelectorClass(html, 'jobs-unified-top-card__bullet'), () => bySelectorClass(html, 'topcard__flavor--bullet')]);
+  const description = firstHtmlValue(html, [() => bySelectorClass(html, 'jobs-box__html-content'), () => bySelectorClass(html, 'jobs-description-content__text'), () => bySelectorClass(html, 'show-more-less-html__markup'), () => bySelectorId(html, 'job-details')]);
 
   if (!role && !company && !description) {
     return {

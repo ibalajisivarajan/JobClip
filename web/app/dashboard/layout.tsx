@@ -25,6 +25,12 @@ export default async function DashboardLayout({ children }: Readonly<{ children:
             <Link className="hover:text-slate-950" href="/dashboard/jobs/new">
               Add Job
             </Link>
+            <Link className="hover:text-slate-950" href="/dashboard/profile">
+              Profile
+            </Link>
+            <Link className="hover:text-slate-950" href="/dashboard/usage">
+              Usage
+            </Link>
             <Link className="hover:text-slate-950" href="/dashboard/settings">
               Settings
             </Link>

@@ -1,119 +1,102 @@
-# Test Plan
+# JobClip V1 Manual Test Plan
 
-JobClip V1 is tested primarily against the cloud deployment path: Vercel dashboard, Supabase Auth/Postgres, and unpacked Chrome extension.
+Run all manual tests against the Vercel deployment (`https://<vercel-domain>`), not localhost, as the primary acceptance path.
 
-## Cloud-first acceptance test
+---
 
-Run this against the Vercel deployment, not local `localhost`, as the primary acceptance path:
+## 1. Authentication
 
-1. Confirm Vercel deployment succeeds from the private GitHub repository with root directory `web`.
-2. Open `https://<vercel-domain>` signed out.
-3. Confirm the Vercel dashboard requires Google login and redirects to `/login`.
-4. Click **Sign in with Google**.
-5. Confirm Google login redirects back to the Vercel dashboard through `https://<vercel-domain>/auth/callback`.
-6. Confirm the signed-in user sees the jobs dashboard.
-7. Load the Chrome extension unpacked.
-8. Confirm the extension signs in through Supabase/Google using `https://<extension-id>.chromiumapp.org/auth`.
-9. Open a job posting page and open the JobClip popup.
-10. Confirm capture is user-initiated and active-tab-only.
-11. Save the job from the extension.
-12. Confirm the job is saved to Supabase with `user_id`.
-13. Confirm the saved job appears in the Vercel dashboard.
-14. Open the job detail page and confirm the full description is visible.
-15. Sign out and confirm dashboard access and extension save are blocked.
+| ID | Description | Steps | Expected Result | Pass/Fail |
+|----|-------------|-------|-----------------|-----------|
+| TC-001 | Login page visible to unauthenticated users | Open `https://<domain>/login` signed out | Login page renders with "Sign in with Google" button | |
+| TC-002 | Unauthenticated access to dashboard redirects to login | Open `https://<domain>/dashboard/jobs` signed out | Redirected to `/login` with `redirectedFrom` param | |
+| TC-003 | Google OAuth flow completes | Click "Sign in with Google", complete Google consent | Redirected to `/dashboard/jobs` as signed-in user | |
+| TC-004 | Auth callback sets session correctly | Complete login; open `/dashboard/jobs` | Jobs page loads without permission error | |
+| TC-005 | Session persists across page reload | Sign in, reload `/dashboard/jobs` | Still signed in; jobs list visible | |
+| TC-006 | Sign out clears session | Click Sign Out | Redirected to `/login`; subsequent `/dashboard` visit redirects to `/login` | |
+| TC-007 | Authenticated user visiting /login redirected to dashboard | Sign in, then navigate to `/login` directly | Redirected to `/dashboard/jobs` | |
+| TC-008 | Expired session redirects to login | Let session expire or clear cookies manually, then visit `/dashboard/jobs` | Redirected to `/login` | |
 
-## Add Job acceptance tests
+---
 
-### URL only
+## 2. Dashboard
 
-1. Open `https://<vercel-domain>/dashboard/jobs/new`.
-2. Select **Paste Job URL**.
-3. Paste a supported job URL.
-4. Click **Fetch Details**.
-5. Confirm the preview appears.
-6. Edit fields if needed.
-7. Click **Save job**.
-8. Confirm the job appears in the dashboard with `capture_method = manual_url`.
+| ID | Description | Steps | Expected Result | Pass/Fail |
+|----|-------------|-------|-----------------|-----------|
+| TC-009 | Jobs list loads for authenticated user | Sign in, open `/dashboard/jobs` | Table renders with saved jobs (or empty state if no jobs) | |
+| TC-010 | Empty state shown when no jobs saved | Sign in with account that has no jobs | "No saved jobs yet" message visible | |
+| TC-011 | Job row links to detail page | Click a role title in the jobs list | Navigates to `/dashboard/jobs/<id>` | |
+| TC-012 | Job detail page shows all fields | Open a job detail page | Company, role title, location, salary, job description all visible | |
+| TC-013 | Job description renders full text | Open a job saved from extension with full description | Full description visible in "Job Description" section | |
+| TC-014 | Raw Text section is collapsible | Open job detail page | "Raw Text" is in a `<details>` element; clicking expands it | |
+| TC-015 | Dashboard header shows signed-in user email | Sign in, open any dashboard page | User email visible in header navigation | |
+| TC-016 | Back link on detail page returns to jobs list | Click "← Back to jobs" on detail page | Returns to `/dashboard/jobs` | |
 
-### Description only
+---
 
-1. Open `https://<vercel-domain>/dashboard/jobs/new`.
-2. Select **Paste Job Description**.
-3. Paste a job description containing role, location, salary, and remote/hybrid clues.
-4. Click **Parse**.
-5. Confirm the preview appears.
-6. Click **Save job**.
-7. Confirm the job appears in the dashboard with `capture_method = manual_text`.
+## 3. Add Job
 
-### URL plus description
+| ID | Description | Steps | Expected Result | Pass/Fail |
+|----|-------------|-------|-----------------|-----------|
+| TC-017 | Add Job page accessible | Sign in, open `/dashboard/jobs/new` | Add Job form renders with mode selector | |
+| TC-018 | URL mode: fetch and preview | Select "Paste Job URL", paste a supported URL, click "Fetch Details" | Preview card populates with extracted fields | |
+| TC-019 | URL mode: save creates job record | Complete TC-018, click "Save job" | Redirected to jobs list; new job appears with `capture_method = manual_url` | |
+| TC-020 | Paste mode: parse and preview | Select "Paste Job Description", paste job text, click "Parse" | Preview card populates with parsed role, company, salary, location | |
+| TC-021 | Paste mode: save creates job record | Complete TC-020, click "Save job" | New job appears in list with `capture_method = manual_text` | |
+| TC-022 | URL + description mode prefers pasted text | Select "Paste URL + Job Description", fill both fields, click "Parse" | Preview shows pasted description content, not fetched page title | |
+| TC-023 | Add Job blocked for unauthenticated user | Visit `/dashboard/jobs/new` signed out | Redirected to `/login` | |
+| TC-024 | Validation: empty URL shows error | Select URL mode, leave URL blank, click "Fetch Details" | Error message shown; no save attempted | |
 
-1. Open `https://<vercel-domain>/dashboard/jobs/new`.
-2. Select **Paste URL + Job Description**.
-3. Paste a URL and a copied job description.
-4. Click **Parse**.
-5. Confirm the pasted description is preferred and URL is stored as metadata.
-6. Click **Save job**.
-7. Confirm the job appears in the dashboard with `capture_method = manual_url`.
+---
 
-## Automated tests
+## 4. Chrome Extension
 
-Run from the repository root:
+| ID | Description | Steps | Expected Result | Pass/Fail |
+|----|-------------|-------|-----------------|-----------|
+| TC-025 | Extension loads unpacked | Copy `config.example.js` to `config.js`, fill values, load unpacked in `chrome://extensions` | Extension appears with JobClip icon; no errors in Extensions page | |
+| TC-026 | Extension popup opens | Click JobClip icon on any tab | Popup opens showing signed-out state with Sign In button | |
+| TC-027 | Extension Google sign-in completes | Click "Sign In", complete Google OAuth | Popup updates to signed-in state showing user email | |
+| TC-028 | Extension captures LinkedIn job | Navigate to a LinkedIn job posting, open popup | Preview shows title, company, location extracted from page | |
+| TC-029 | Extension saves job to Supabase | Complete TC-028, click "Save job" | Success message shown; job appears in Vercel dashboard | |
+| TC-030 | Saved job includes user_id | Check Supabase table after TC-029 | Row has `user_id` matching the signed-in user's UID | |
+| TC-031 | Extension save blocked when signed out | Sign out from extension, open popup on job page, attempt save | Error: must sign in before saving | |
+| TC-032 | Extension captures generic career page | Navigate to a non-LinkedIn job page, open popup | Best-effort extraction populates preview | |
+
+---
+
+## 5. Security
+
+| ID | Description | Steps | Expected Result | Pass/Fail |
+|----|-------------|-------|-----------------|-----------|
+| TC-033 | RLS blocks cross-user read | Attempt to query `jobs` table as a different authenticated user | Only that user's own rows returned | |
+| TC-034 | Unauthenticated Supabase query blocked | Call `supabase.from('jobs').select()` without auth token | Returns empty result or permission error (RLS enforced) | |
+| TC-035 | No service role key in browser network traffic | Open DevTools Network tab, sign in and load dashboard | No `service_role` key visible in any request header | |
+| TC-036 | extension/config.js not in repository | Check git history and current tree | `extension/config.js` absent from all commits | |
+| TC-037 | No .env.local in repository | Check git history and current tree | `.env.local` absent from all commits | |
+| TC-038 | npm run qa passes | Run `npm run qa` from repo root | All automated checks pass; manual items listed | |
+
+---
+
+## Running Automated Tests
 
 ```bash
-npm run test
-```
-
-This executes:
-
-- Extractor tests against local HTML fixtures.
-- Extension auth static tests.
-- Security tests for secrets, service role usage, anonymous writes, and background crawling logic.
-- Add Job parser tests for LinkedIn, Workday, Greenhouse, Lever, Ashby, generic URLs, and manual text parsing.
-
-## Static checks
-
-```bash
+# Dependency-free checks + all automated tests
 npm run check
+
+# Smoke check (file existence, JSON validity, no-secrets, manifest checks)
+npm run smoke
+
+# Full QA gate
+npm run qa
 ```
 
-This validates JSON files and JavaScript syntax, then runs the automated test suite.
+## Release Criteria
 
-## Web checks
+A release to production requires all of the following:
 
-When dependencies can be installed, run these checks before merging or releasing:
-
-```bash
-cd web
-npm install
-npm run lint
-npm run typecheck
-npm run build
-```
-
-These are code quality checks; they do not replace the cloud-first acceptance test on Vercel.
-
-## Manual web tests
-
-Run manual web tests against `https://<vercel-domain>` as the primary environment. Local `http://localhost:3000` may be used only as an optional developer path.
-
-See `tests/web/auth-flow.test.md` and `tests/web/dashboard-flow.test.md`.
-
-## Manual extension tests
-
-Run manual extension tests with `extension/config.js` pointing to the Vercel dashboard URL.
-
-See `tests/extension/manual-test-plan.md`.
-
-## Release criteria
-
-- Cloud-first acceptance test passes on Vercel.
-- Automated tests pass.
-- Web lint/typecheck/build pass in an environment with npm registry access.
-- Manual dashboard tests pass against Vercel.
-- Manual extension tests pass against the unpacked extension configured for Vercel.
-- Add Job URL, description, and URL plus description tests pass against Vercel.
-- Supabase migration is applied.
-- Vercel dashboard callback URL is configured in Supabase.
-- Extension callback URL is configured in Supabase.
-- Google provider is configured in Supabase Auth.
-- No V1 constraints are violated: no AI, no resume tailoring, no ATS scoring, no auto-apply, no background scraping, no service role key, and user-initiated capture only.
+1. `npm run qa` exits 0 from repo root.
+2. All TC-001 through TC-038 manual tests pass against the Vercel deployment.
+3. No V1 constraints violated: no AI, no auto-apply, no background scraping, no service role key, user-initiated capture only.
+4. Supabase migration applied and RLS confirmed enabled.
+5. Vercel callback URL configured in Supabase Auth.
+6. Extension callback URL configured in Supabase Auth after loading unpacked.

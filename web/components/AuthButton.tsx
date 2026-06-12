@@ -28,15 +28,19 @@ export function GoogleSignInButton() {
 export function LogoutButton() {
   const router = useRouter();
 
-  async function logout() {
+  const handleLogout = async () => {
     const supabase = createClient();
     await supabase.auth.signOut();
+    await fetch('/auth/signout', { method: 'POST' });
     router.push('/login');
     router.refresh();
-  }
+  };
 
   return (
-    <button onClick={logout} className="rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-100">
+    <button
+      onClick={handleLogout}
+      className="rounded-md border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
+    >
       Logout
     </button>
   );

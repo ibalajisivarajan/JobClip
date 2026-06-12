@@ -1,9 +1,6 @@
-'use client';
-
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
-import { useEffect, useState } from 'react';
-import { createClient } from '@/lib/supabase';
+import { createServerSupabaseClient } from '@/lib/server';
+import { ApplyActions } from '@/components/ApplyActions';
 
 type Job = {
   id: string;
@@ -20,6 +17,7 @@ type Job = {
   source_platform: string | null;
   raw_text: string | null;
   captured_at: string | null;
+  ai_status: string | null;
 };
 
 function DetailRow({ label, value }: { label: string; value?: string | null }) {
@@ -31,45 +29,55 @@ function DetailRow({ label, value }: { label: string; value?: string | null }) {
   );
 }
 
-export default function JobDetailPage() {
-  const params = useParams<{ id: string }>();
-  const [job, setJob] = useState<Job | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+export default async function JobDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const supabase = await createServerSupabaseClient();
+  const { data, error } = await supabase.from('jobs').select('*').eq('id', id).single();
 
-  useEffect(() => {
-    async function loadJob() {
-      const supabase = createClient();
-      const { data, error } = await supabase.from('jobs').select('*').eq('id', params.id).single();
-      if (error) {
-        setError(error.message);
-      } else {
-        setJob(data);
-      }
-      setLoading(false);
-    }
+  if (error) return <p className="text-red-600">{error.message}</p>;
+  if (!data) return <p className="text-slate-600">Job not found.</p>;
 
-    loadJob();
-  }, [params.id]);
-
-  if (loading) return <p className="text-slate-600">Loading job…</p>;
-  if (error) return <p className="text-red-600">{error}</p>;
-  if (!job) return <p className="text-slate-600">Job not found.</p>;
+  const job = data as Job;
 
   return (
     <section>
       <Link className="text-sm font-semibold text-blue-700 hover:underline" href="/dashboard/jobs">
         ← Back to jobs
       </Link>
+
       <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <p className="text-sm font-medium text-slate-500">{job.company || 'Unknown company'}</p>
         <h1 className="mt-2 text-3xl font-bold text-slate-950">{job.role_title || 'Untitled role'}</h1>
         {job.source_url && (
-          <a className="mt-4 inline-block text-sm font-semibold text-blue-700 hover:underline" href={job.source_url} target="_blank">
-            Open original posting
+          <a
+            className="mt-4 inline-block text-sm font-semibold text-blue-700 hover:underline"
+            href={job.source_url}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Open original posting ↗
           </a>
         )}
       </div>
+
+      {job.ai_status === 'disabled' ? (
+        <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-6">
+          <p className="text-sm text-slate-500">
+            AI processing was disabled when this job was saved.{' '}
+            Enable AI in{' '}
+            <a href="/dashboard/settings" className="text-blue-600 underline">
+              Settings
+            </a>{' '}
+            to process future jobs.
+          </p>
+        </div>
+      ) : (
+        <ApplyActions
+          jobId={job.id}
+          roleTitle={job.role_title ?? ''}
+          jobDescription={job.job_description ?? ''}
+        />
+      )}
 
       <dl className="mt-6 grid gap-4 md:grid-cols-2">
         <DetailRow label="Company" value={job.company} />
@@ -87,7 +95,9 @@ export default function JobDetailPage() {
 
       <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
         <h2 className="text-lg font-bold text-slate-950">Job Description</h2>
-        <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">{job.job_description || '—'}</p>
+        <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">
+          {job.job_description || '—'}
+        </p>
       </div>
 
       <details className="mt-4 rounded-xl border border-slate-200 bg-white p-4">

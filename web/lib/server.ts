@@ -17,9 +17,11 @@ export async function createServerSupabaseClient() {
       },
       setAll(cookiesToSet) {
         try {
-          cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options));
-        } catch {
-          // Server Components cannot set cookies; middleware refreshes sessions.
+          cookiesToSet.forEach(({ name, value, options }) =>
+            cookieStore.set(name, value, options)
+          );
+        } catch (error) {
+          console.error('[server.ts] setAll failed — session refresh cookie not written:', error);
         }
       },
     },
