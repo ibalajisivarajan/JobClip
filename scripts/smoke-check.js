@@ -109,6 +109,13 @@ const requiredFiles = [
   'supabase/functions/process-job/prompts/tailor.txt',
   'supabase/functions/process-job/prompts/score.txt',
   'supabase/functions/process-job/prompts/questions.txt',
+  'supabase/002_ai_pipeline.sql',
+  'web/lib/role-detection.ts',
+  'web/app/api/resumes/route.ts',
+  'web/app/api/resumes/[id]/route.ts',
+  'web/app/dashboard/profile/page.tsx',
+  'web/components/ResumeManager.tsx',
+  'web/components/ApplyActions.tsx',
 ];
 
 for (const rel of requiredFiles) {

@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { createServerSupabaseClient } from '@/lib/server';
+import { ApplyActions } from '@/components/ApplyActions';
 
 type Job = {
   id: string;
@@ -42,6 +43,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
       <Link className="text-sm font-semibold text-blue-700 hover:underline" href="/dashboard/jobs">
         ← Back to jobs
       </Link>
+
       <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <p className="text-sm font-medium text-slate-500">{job.company || 'Unknown company'}</p>
         <h1 className="mt-2 text-3xl font-bold text-slate-950">{job.role_title || 'Untitled role'}</h1>
@@ -52,10 +54,16 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
             target="_blank"
             rel="noopener noreferrer"
           >
-            Open original posting
+            Open original posting ↗
           </a>
         )}
       </div>
+
+      <ApplyActions
+        jobId={job.id}
+        roleTitle={job.role_title ?? ''}
+        jobDescription={job.job_description ?? ''}
+      />
 
       <dl className="mt-6 grid gap-4 md:grid-cols-2">
         <DetailRow label="Company" value={job.company} />
@@ -73,7 +81,9 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
 
       <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
         <h2 className="text-lg font-bold text-slate-950">Job Description</h2>
-        <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">{job.job_description || '—'}</p>
+        <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">
+          {job.job_description || '—'}
+        </p>
       </div>
 
       <details className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
