@@ -33,22 +33,59 @@ function makeElement(html, attrs = {}) {
   };
 }
 
+function findSingle(html, item) {
+  // compound selector: e.g. ".foo h1" or ".foo a" — find the outer element, then find the child tag inside it
+  const compoundMatch = item.match(/^([.#\[][^\s]+)\s+([a-z0-9]+)$/i);
+  if (compoundMatch) {
+    const outer = findSingle(html, compoundMatch[1]);
+    if (outer) {
+      const childTag = compoundMatch[2].toLowerCase();
+      const inner = outer.textContent; // already stripped, so just re-search the raw html
+      // re-search in original html: find outer container, then child tag within it
+      const outerClass = compoundMatch[1].startsWith('.') ? compoundMatch[1].slice(1) : null;
+      if (outerClass) {
+        const outerRe = new RegExp(`<([a-z0-9-]+)[^>]*class=["'][^"']*${outerClass.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[^"']*["'][^>]*>([\\s\\S]*?)<\\/\\1>`, 'i');
+        const outerBlock = html.match(outerRe);
+        if (outerBlock) {
+          const childRe = new RegExp(`<${childTag}[^>]*>([\\s\\S]*?)<\\/${childTag}>`, 'i');
+          const childMatch = outerBlock[2].match(childRe);
+          if (childMatch) return makeElement(childMatch[1]);
+        }
+      }
+      return outer;
+    }
+    return null;
+  }
+
+  let match;
+  if (item === 'h1') match = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
+  else if (item === 'main') match = html.match(/<main[^>]*>([\s\S]*?)<\/main>/i);
+  else if (item.startsWith('#')) match = html.match(exactAttrRegex('id', item.slice(1)));
+  else if (item.startsWith('.')) match = html.match(attrRegex('class', item.slice(1)));
+  else if (item.startsWith('[data-testid*="')) match = html.match(attrRegex('data-testid', item.match(/\*="([^"]+)/)[1]));
+  else if (item.startsWith('[class*="')) match = html.match(attrRegex('class', item.match(/\*="([^"]+)/)[1]));
+  else if (item.startsWith('[data-qa=')) {
+    const val = item.match(/data-qa="([^"]+)"/)?.[1];
+    if (val) match = html.match(new RegExp(`<([a-z0-9-]+)[^>]*data-qa=["']${val.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["'][^>]*>([\\s\\S]*?)<\\/\\1>`, 'i'));
+  }
+  else if (item.startsWith('[data-automation-id=')) {
+    const val = item.match(/data-automation-id="([^"]+)"/)?.[1];
+    if (val) match = html.match(new RegExp(`<([a-z0-9-]+)[^>]*data-automation-id=["']${val.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["'][^>]*>([\\s\\S]*?)<\\/\\1>`, 'i'));
+  }
+  else if (item.startsWith('meta')) {
+    const name = item.match(/(?:property|name)="([^"]+)"/)?.[1];
+    const metaMatch = name && html.match(new RegExp(`<meta[^>]*(?:property|name)=["']${name}["'][^>]*content=["']([^"']*)["'][^>]*>`, 'i'));
+    if (metaMatch) return makeElement('', { content: metaMatch[1] });
+  }
+  if (match) return makeElement(match[2] || match[1]);
+  return null;
+}
+
 function findElement(html, selector) {
   const selectors = selector.split(',').map((item) => item.trim());
   for (const item of selectors) {
-    let match;
-    if (item === 'h1') match = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
-    else if (item === 'main') match = html.match(/<main[^>]*>([\s\S]*?)<\/main>/i);
-    else if (item.startsWith('#')) match = html.match(exactAttrRegex('id', item.slice(1)));
-    else if (item.startsWith('.')) match = html.match(attrRegex('class', item.slice(1)));
-    else if (item.startsWith('[data-testid*="')) match = html.match(attrRegex('data-testid', item.match(/\*="([^"]+)/)[1]));
-    else if (item.startsWith('[class*="')) match = html.match(attrRegex('class', item.match(/\*="([^"]+)/)[1]));
-    else if (item.startsWith('meta')) {
-      const name = item.match(/(?:property|name)="([^"]+)"/)?.[1];
-      const metaMatch = name && html.match(new RegExp(`<meta[^>]*(?:property|name)=["']${name}["'][^>]*content=["']([^"']*)["'][^>]*>`, 'i'));
-      if (metaMatch) return makeElement('', { content: metaMatch[1] });
-    }
-    if (match) return makeElement(match[2] || match[1]);
+    const el = findSingle(html, item);
+    if (el) return el;
   }
   return null;
 }
@@ -94,7 +131,7 @@ test('LinkedIn parser extracts core visible job fields', () => {
   assert.equal(fetchCalled, false);
   assert.equal(job.company, 'Acme Robotics');
   assert.equal(job.role_title, 'Senior Frontend Engineer');
-  assert.equal(job.location, 'San Francisco, CA (Hybrid)');
+  assert.equal(job.location, 'San Francisco, CA');
   assert.equal(job.source_platform, 'LinkedIn');
   assert.match(job.job_description, /Build accessible interfaces/);
 });

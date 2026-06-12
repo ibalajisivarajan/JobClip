@@ -47,7 +47,9 @@
     if (host.includes('linkedin.')) return 'LinkedIn';
     if (host.includes('greenhouse.io')) return 'Greenhouse';
     if (host.includes('lever.co')) return 'Lever';
-    if (host.includes('workday')) return 'Workday';
+    if (host.includes('workday') || host.includes('myworkdayjobs')) return 'Workday';
+    if (host.includes('indeed.com')) return 'Indeed';
+    if (host.includes('glassdoor.com')) return 'Glassdoor';
     return host;
   }
 
@@ -80,10 +82,40 @@
 
   function parseLinkedIn() {
     const raw = bodyText();
-    const title = firstText(['.jobs-unified-top-card__job-title', '.top-card-layout__title', 'h1']);
-    const company = firstText(['.jobs-unified-top-card__company-name', '.topcard__org-name-link', '.top-card-layout__card .topcard__flavor', '[data-tracking-control-name="public_jobs_topcard-org-name"]']);
-    const location = firstText(['.jobs-unified-top-card__bullet', '.topcard__flavor--bullet', '.jobs-unified-top-card__primary-description-container span']);
-    const description = firstText(['.jobs-description-content__text', '.show-more-less-html__markup', '#job-details']) || raw;
+
+    const title = firstText([
+      '.job-details-jobs-unified-top-card__job-title h1',
+      '.jobs-unified-top-card__job-title h1',
+      '.jobs-unified-top-card__job-title',
+      '.top-card-layout__title',
+      'h1',
+    ]);
+
+    const company = firstText([
+      '.job-details-jobs-unified-top-card__company-name a',
+      '.job-details-jobs-unified-top-card__company-name',
+      '.jobs-unified-top-card__company-name a',
+      '.jobs-unified-top-card__company-name',
+      '.topcard__org-name-link',
+      '[data-tracking-control-name="public_jobs_topcard-org-name"]',
+      '.top-card-layout__card .topcard__flavor--bullet',
+    ]);
+
+    const location = firstText([
+      '.job-details-jobs-unified-top-card__primary-description-container .tvm__text',
+      '.job-details-jobs-unified-top-card__bullet',
+      '.jobs-unified-top-card__bullet',
+      '.topcard__flavor--bullet',
+      '.jobs-unified-top-card__primary-description-container span',
+    ]);
+
+    const description = firstText([
+      '.jobs-description__content .jobs-box__html-content',
+      '.job-details-jobs-unified-top-card__job-description',
+      '.jobs-description-content__text',
+      '.show-more-less-html__markup',
+      '#job-details',
+    ]) || raw;
 
     return normalizeJob({
       company,
@@ -97,11 +129,55 @@
   function parseGeneric() {
     const raw = bodyText();
     const jsonLd = parseJsonLdJobPosting();
+
     const common = {
-      company: firstText(['[data-testid*="company"]', '.company', '.company-name', '[class*="company"]']) || meta('og:site_name'),
-      role_title: firstText(['[data-testid*="title"]', '.job-title', '.posting-headline h2', 'h1']) || meta('og:title') || document.title,
-      job_description: firstText(['[data-testid*="description"]', '.job-description', '#job-description', '.posting-description', 'main']) || raw,
-      location: firstText(['[data-testid*="location"]', '.location', '.job-location', '[class*="location"]']),
+      company: firstText([
+        '[data-testid*="company"]',
+        '[class*="company-name"]',
+        '[class*="companyName"]',
+        '[class*="employer"]',
+        '.company',
+        '.company-name',
+        '[class*="company"]',
+        '[data-qa="job-company"]',
+        '.main-header-company',
+        '[data-automation-id="jobPostingHeader"] h4',
+      ]) || meta('og:site_name'),
+
+      role_title: firstText([
+        '[data-testid*="job-title"]',
+        '[data-testid*="title"]',
+        '[class*="job-title"]',
+        '[class*="jobTitle"]',
+        '.posting-headline h2',
+        '[data-qa="job-title"]',
+        '[data-automation-id="jobPostingHeader"] h2',
+        'h1',
+      ]) || meta('og:title') || document.title,
+
+      job_description: firstText([
+        '[data-testid*="description"]',
+        '[class*="job-description"]',
+        '[class*="jobDescription"]',
+        '#job-description',
+        '.posting-description',
+        '#content',
+        '[data-qa="job-description"]',
+        '.posting-page-content',
+        '[data-automation-id="jobPostingDescription"]',
+        'main',
+      ]) || raw,
+
+      location: firstText([
+        '[data-testid*="location"]',
+        '[class*="location"]',
+        '[class*="job-location"]',
+        '[data-qa="job-location"]',
+        '.posting-categories .location',
+        '[data-automation-id="locations"]',
+        '.location',
+        '.job-location',
+      ]),
     };
 
     return normalizeJob({ ...(jsonLd || common), raw_text: raw });

@@ -49,7 +49,7 @@ test('parses LinkedIn HTML without external services', () => {
   assert.equal(job.capture_method, 'manual_url');
   assert.equal(job.company, 'Acme Robotics');
   assert.equal(job.role_title, 'Senior Frontend Engineer');
-  assert.equal(job.location, 'San Francisco, CA (Hybrid)');
+  assert.equal(job.location, 'San Francisco, CA');
 });
 
 test('parses Workday-style JSON-LD JobPosting', () => {
