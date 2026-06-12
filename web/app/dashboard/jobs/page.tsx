@@ -1,8 +1,5 @@
-'use client';
-
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
-import { createClient } from '@/lib/supabase';
+import { createServerSupabaseClient } from '@/lib/server';
 
 type Job = {
   id: string;
@@ -15,29 +12,12 @@ type Job = {
   created_at: string;
 };
 
-export default function JobsPage() {
-  const [jobs, setJobs] = useState<Job[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    async function loadJobs() {
-      const supabase = createClient();
-      const { data, error } = await supabase
-        .from('jobs')
-        .select('id, company, role_title, location, remote_hybrid, source_platform, captured_at, created_at')
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        setError(error.message);
-      } else {
-        setJobs(data ?? []);
-      }
-      setLoading(false);
-    }
-
-    loadJobs();
-  }, []);
+export default async function JobsPage() {
+  const supabase = await createServerSupabaseClient();
+  const { data: jobs, error } = await supabase
+    .from('jobs')
+    .select('id, company, role_title, location, remote_hybrid, source_platform, captured_at, created_at')
+    .order('created_at', { ascending: false });
 
   return (
     <section>
@@ -61,28 +41,21 @@ export default function JobsPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {loading && (
-              <tr>
-                <td className="px-4 py-6 text-slate-500" colSpan={6}>
-                  Loading jobs…
-                </td>
-              </tr>
-            )}
             {error && (
               <tr>
                 <td className="px-4 py-6 text-red-600" colSpan={6}>
-                  {error}
+                  {error.message}
                 </td>
               </tr>
             )}
-            {!loading && !error && jobs.length === 0 && (
+            {!error && (!jobs || jobs.length === 0) && (
               <tr>
                 <td className="px-4 py-10 text-center text-slate-500" colSpan={6}>
                   No saved jobs yet. Open the JobClip extension on a job posting to save your first one.
                 </td>
               </tr>
             )}
-            {jobs.map((job) => (
+            {(jobs ?? []).map((job: Job) => (
               <tr key={job.id} className="hover:bg-slate-50">
                 <td className="px-4 py-4 font-medium text-slate-900">{job.company || 'Unknown'}</td>
                 <td className="px-4 py-4">

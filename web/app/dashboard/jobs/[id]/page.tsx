@@ -1,9 +1,5 @@
-'use client';
-
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
-import { useEffect, useState } from 'react';
-import { createClient } from '@/lib/supabase';
+import { createServerSupabaseClient } from '@/lib/server';
 
 type Job = {
   id: string;
@@ -31,29 +27,12 @@ function DetailRow({ label, value }: { label: string; value?: string | null }) {
   );
 }
 
-export default function JobDetailPage() {
-  const params = useParams<{ id: string }>();
-  const [job, setJob] = useState<Job | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+export default async function JobDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const supabase = await createServerSupabaseClient();
+  const { data: job, error } = await supabase.from('jobs').select('*').eq('id', id).single();
 
-  useEffect(() => {
-    async function loadJob() {
-      const supabase = createClient();
-      const { data, error } = await supabase.from('jobs').select('*').eq('id', params.id).single();
-      if (error) {
-        setError(error.message);
-      } else {
-        setJob(data);
-      }
-      setLoading(false);
-    }
-
-    loadJob();
-  }, [params.id]);
-
-  if (loading) return <p className="text-slate-600">Loading job…</p>;
-  if (error) return <p className="text-red-600">{error}</p>;
+  if (error) return <p className="text-red-600">{error.message}</p>;
   if (!job) return <p className="text-slate-600">Job not found.</p>;
 
   return (
