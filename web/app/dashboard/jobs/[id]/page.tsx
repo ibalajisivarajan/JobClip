@@ -76,6 +76,8 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
           jobId={job.id}
           roleTitle={job.role_title ?? ''}
           jobDescription={job.job_description ?? ''}
+          company={job.company}
+          sourceUrl={job.source_url}
         />
       )}
 

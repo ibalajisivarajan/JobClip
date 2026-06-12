@@ -10,24 +10,17 @@
 
 ---
 
-## Check Results Summary
+## Check Results Summary (post-fix, branch `claude/friendly-cori-ymeh30`)
 
 | Check | Command | Result |
 |-------|---------|--------|
-| JSON + JS syntax + tests | `npm run check` | ✅ PASS — 41/41 tests |
-| Smoke checks | `npm run smoke` | ✅ PASS — 33/33 |
-| ESLint | `npm run lint` | ❌ FAIL — 2 errors |
+| JSON + JS syntax + tests | `npm run check` | ✅ PASS — 53/53 tests |
+| Smoke checks | `npm run smoke` | ✅ PASS — 35/35 |
+| ESLint | `npm run lint` | ✅ PASS — 0 errors |
 | TypeScript | `npm --prefix web run typecheck` | ✅ PASS — 0 errors |
 | Production build | `npm --prefix web run build` | ✅ PASS — 15 routes, 0 errors |
 
-### Lint Failure Detail
-
-| File | Line | Rule | Issue |
-|------|------|------|-------|
-| `web/components/ApplyActions.tsx` | 58 | `react-hooks/set-state-in-effect` | `void load()` inside useEffect body |
-| `web/components/ResumeManager.tsx` | 32 | `react-hooks/set-state-in-effect` | `void load()` inside useEffect body |
-
-Both components work correctly at runtime. The lint rule flags the async data-fetch pattern as a potential cascading render concern. This is a code quality issue, not a functional defect.
+All checks pass as of the `fix: close audit gaps` commit on `claude/friendly-cori-ymeh30`.
 
 ---
 

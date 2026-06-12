@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase';
-import { detectRoleCategory } from '@/lib/role-detection';
+import { detectRoleType } from '@/lib/role-detection';
+import { downloadResumeAsPdf, sanitizeFilename } from '@/lib/pdf';
 
 type Question = { question: string; guidance: string };
 
@@ -21,6 +22,8 @@ type Props = {
   jobId: string;
   roleTitle: string;
   jobDescription: string;
+  company?: string | null;
+  sourceUrl?: string | null;
 };
 
 function ScoreBadge({ score }: { score: number }) {
@@ -37,34 +40,36 @@ function ScoreBadge({ score }: { score: number }) {
   );
 }
 
-export function ApplyActions({ jobId, roleTitle, jobDescription }: Props) {
+export function ApplyActions({ jobId, roleTitle, jobDescription, company, sourceUrl }: Props) {
   const [result, setResult] = useState<AiResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [triggering, setTriggering] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const load = useCallback(async () => {
+  const load = useCallback(() => {
     const supabase = createClient();
-    const { data } = await supabase
+    supabase
       .from('job_ai_results')
       .select('*')
       .eq('job_id', jobId)
-      .maybeSingle();
-    setResult((data as AiResult | null) ?? null);
-    setLoading(false);
+      .maybeSingle()
+      .then(({ data }) => {
+        setResult((data as AiResult | null) ?? null);
+        setLoading(false);
+      });
   }, [jobId]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { load(); }, [load]);
 
   async function trigger() {
     setTriggering(true);
     setError(null);
     try {
       const supabase = createClient();
-      const roleCategory = detectRoleCategory(roleTitle, jobDescription);
+      const roleType = detectRoleType(roleTitle, jobDescription);
       const { data, error: fnError } = await supabase.functions.invoke('process-job', {
-        body: { job_id: jobId, role_category: roleCategory },
+        body: { job_id: jobId, role_type: roleType },
       });
       if (fnError) throw new Error(fnError.message);
       setResult(data as AiResult);
@@ -80,6 +85,19 @@ export function ApplyActions({ jobId, roleTitle, jobDescription }: Props) {
     await navigator.clipboard.writeText(result.tailored_resume_md);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  }
+
+  function downloadPdf() {
+    if (!result?.tailored_resume_md) return;
+    const base = company
+      ? `${company}_${roleTitle}_resume`
+      : `${roleTitle}_resume`;
+    downloadResumeAsPdf(result.tailored_resume_md, sanitizeFilename(base));
+  }
+
+  function apply() {
+    downloadPdf();
+    if (sourceUrl) window.open(sourceUrl, '_blank', 'noopener,noreferrer');
   }
 
   if (loading) return null;
@@ -100,7 +118,7 @@ export function ApplyActions({ jobId, roleTitle, jobDescription }: Props) {
       {result === null && (
         <div className="mt-4">
           <p className="text-sm text-slate-600">
-            Tailor your default resume to this job and get an ATS score, keyword gap analysis, and
+            Tailor your resume to this job and get an ATS score, keyword gap analysis, and
             application question guidance.
           </p>
           <button
@@ -165,12 +183,18 @@ export function ApplyActions({ jobId, roleTitle, jobDescription }: Props) {
                 <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
                   Tailored Resume
                 </p>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <button
                     onClick={() => void copy()}
                     className="rounded-lg border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50"
                   >
                     {copied ? 'Copied!' : 'Copy Markdown'}
+                  </button>
+                  <button
+                    onClick={downloadPdf}
+                    className="rounded-lg border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                  >
+                    Download PDF
                   </button>
                   <button
                     onClick={() => void trigger()}
@@ -184,6 +208,17 @@ export function ApplyActions({ jobId, roleTitle, jobDescription }: Props) {
               <pre className="mt-2 max-h-80 overflow-y-auto rounded-xl bg-slate-50 p-4 text-xs leading-5 text-slate-700 whitespace-pre-wrap">
                 {result.tailored_resume_md}
               </pre>
+            </div>
+          )}
+
+          {result.tailored_resume_md && (
+            <div className="flex flex-wrap gap-3">
+              <button
+                onClick={apply}
+                className="rounded-xl bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-600"
+              >
+                Apply — Download PDF {sourceUrl ? '& Open Posting' : ''}
+              </button>
             </div>
           )}
 

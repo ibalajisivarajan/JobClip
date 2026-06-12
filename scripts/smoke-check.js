@@ -120,8 +120,10 @@ const requiredFiles = [
   'supabase/functions/_shared/log-usage.ts',
   'web/app/dashboard/usage/page.tsx',
   'supabase/004_user_settings.sql',
+  'supabase/005_audit_gap_fixes.sql',
   'supabase/functions/_shared/ai-router.ts',
   'web/app/api/settings/route.ts',
+  'web/lib/pdf.ts',
 ];
 
 for (const rel of requiredFiles) {

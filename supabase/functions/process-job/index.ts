@@ -11,6 +11,9 @@ const QUESTIONS_SYSTEM = await Deno.readTextFile(new URL('./prompts/questions.tx
 const SUPABASE_URL      = Deno.env.get('SUPABASE_URL')      ?? '';
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
 
+const ATS_THRESHOLD = 80;
+const ATS_MAX_ATTEMPTS = 3;
+
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -46,13 +49,18 @@ serve(async (req: Request) => {
   // --- Parse body ---
   let jobId: string;
   let reqResumeId: string | undefined;
-  let roleCategory: string;
+  let roleType: string;
 
   try {
-    const body = await req.json() as { job_id?: string; resume_id?: string; role_category?: string };
+    const body = await req.json() as {
+      job_id?: string;
+      resume_id?: string;
+      role_type?: string;
+      role_category?: string; // backwards compat
+    };
     jobId      = body.job_id       ?? '';
     reqResumeId = body.resume_id;
-    roleCategory = body.role_category ?? 'general';
+    roleType   = body.role_type ?? body.role_category ?? 'general';
   } catch {
     return json({ error: 'Invalid request body' }, 400);
   }
@@ -89,7 +97,7 @@ serve(async (req: Request) => {
     return new Response('AI disabled for this user', { status: 200, headers: CORS_HEADERS });
   }
 
-  // --- Resolve resume ---
+  // --- Resolve resume (role-based selection) ---
   let resumeId: string | undefined = reqResumeId;
   let resumeContent = '';
 
@@ -102,14 +110,52 @@ serve(async (req: Request) => {
       .single();
     resumeContent = resume?.content_md ?? '';
   } else {
-    const { data: defaultResume } = await supabase
-      .from('resumes')
-      .select('id, content_md')
-      .eq('user_id', user.id)
-      .eq('is_default', true)
-      .maybeSingle();
-    resumeContent = defaultResume?.content_md ?? '';
-    resumeId      = defaultResume?.id;
+    // 1. Try role-type match (tpm | pm | scrum_master)
+    const normalizedRoleType = ['tpm', 'pm', 'scrum_master'].includes(roleType)
+      ? roleType
+      : null;
+
+    if (normalizedRoleType) {
+      const { data: roleResume } = await supabase
+        .from('resumes')
+        .select('id, content_md')
+        .eq('user_id', user.id)
+        .eq('role_type', normalizedRoleType)
+        .maybeSingle();
+      if (roleResume) {
+        resumeContent = roleResume.content_md ?? '';
+        resumeId = roleResume.id;
+      }
+    }
+
+    // 2. Fall back to default resume
+    if (!resumeContent.trim()) {
+      const { data: defaultResume } = await supabase
+        .from('resumes')
+        .select('id, content_md')
+        .eq('user_id', user.id)
+        .eq('is_default', true)
+        .maybeSingle();
+      if (defaultResume) {
+        resumeContent = defaultResume.content_md ?? '';
+        resumeId = defaultResume.id;
+      }
+    }
+
+    // 3. Fall back to any resume (TPM preferred)
+    if (!resumeContent.trim()) {
+      const { data: anyResume } = await supabase
+        .from('resumes')
+        .select('id, content_md')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (anyResume) {
+        resumeContent = anyResume.content_md ?? '';
+        resumeId = anyResume.id;
+      }
+    }
   }
 
   if (!resumeContent.trim()) {
@@ -195,7 +241,6 @@ serve(async (req: Request) => {
       if (result.http_status >= 400) throw new Error(`AI API error: HTTP ${result.http_status}`);
       return result.text;
     } catch (err) {
-      // Log network-level failures (http_status 0) that weren't already logged above
       if (!(err instanceof Error && err.message.startsWith('AI API error:'))) {
         const duration_ms = Date.now() - startTime;
         await logUsage(supabase, {
@@ -220,43 +265,66 @@ serve(async (req: Request) => {
     const jobCtx =
       `Role: ${job.role_title ?? 'Unknown'}\n` +
       `Company: ${job.company ?? 'Unknown'}\n` +
-      `Role Category: ${roleCategory}\n\n` +
+      `Role Type: ${roleType}\n\n` +
       `Job Description:\n---\n${job.job_description ?? ''}\n---`;
 
-    // Step 1: Tailor
-    const tailored = await aiCall(
-      TAILOR_SYSTEM,
-      `${jobCtx}\n\nMaster Resume (Markdown):\n---\n${resumeContent}\n---`,
-      'resume_tailor',
-      8192,
-    );
+    // ATS retry loop: up to ATS_MAX_ATTEMPTS attempts, save best result
+    let bestTailored = '';
+    let bestScore: number | null = null;
+    let bestKeywordGaps: string[] = [];
+    let bestAtsSummary = '';
+    let atsAttempts = 0;
 
-    // Step 2: Score
-    const scoreRaw = await aiCall(
-      SCORE_SYSTEM,
-      `Job Description:\n---\n${job.job_description ?? ''}\n---\n\nTailored Resume:\n---\n${tailored}\n---`,
-      'ats_score',
-      512,
-    );
+    for (let attempt = 1; attempt <= ATS_MAX_ATTEMPTS; attempt++) {
+      atsAttempts = attempt;
 
-    let atsScore: number | null = null;
-    let keywordGaps: string[]   = [];
-    let atsSummary              = '';
+      const tailored = await aiCall(
+        TAILOR_SYSTEM,
+        attempt === 1
+          ? `${jobCtx}\n\nMaster Resume (Markdown):\n---\n${resumeContent}\n---`
+          : `${jobCtx}\n\nMaster Resume (Markdown):\n---\n${resumeContent}\n---\n\nPrevious ATS score was ${bestScore ?? 'unknown'}/100. Missing keywords: ${bestKeywordGaps.join(', ') || 'none identified'}. Please improve keyword coverage while keeping all content truthful.`,
+        `resume_tailor_attempt_${attempt}`,
+        8192,
+      );
 
-    try {
-      const scoreJson = JSON.parse(scoreRaw.trim()) as {
-        score?: unknown;
-        keyword_gaps?: unknown;
-        summary?: unknown;
-      };
-      if (typeof scoreJson.score === 'number')             atsScore    = scoreJson.score;
-      if (Array.isArray(scoreJson.keyword_gaps))            keywordGaps = scoreJson.keyword_gaps as string[];
-      if (typeof scoreJson.summary === 'string')            atsSummary  = scoreJson.summary;
-    } catch {
-      // Score parsing failed — continue without score
+      const scoreRaw = await aiCall(
+        SCORE_SYSTEM,
+        `Job Description:\n---\n${job.job_description ?? ''}\n---\n\nTailored Resume:\n---\n${tailored}\n---`,
+        `ats_score_attempt_${attempt}`,
+        512,
+      );
+
+      let atsScore: number | null = null;
+      let keywordGaps: string[] = [];
+      let atsSummary = '';
+
+      try {
+        const scoreJson = JSON.parse(scoreRaw.trim()) as {
+          score?: unknown;
+          keyword_gaps?: unknown;
+          summary?: unknown;
+        };
+        if (typeof scoreJson.score === 'number')   atsScore    = scoreJson.score;
+        if (Array.isArray(scoreJson.keyword_gaps)) keywordGaps = scoreJson.keyword_gaps as string[];
+        if (typeof scoreJson.summary === 'string') atsSummary  = scoreJson.summary;
+      } catch {
+        // Score parsing failed — keep previous best
+      }
+
+      // Track best result
+      const isBetter = bestScore === null || (atsScore !== null && atsScore > bestScore);
+      if (isBetter) {
+        bestTailored    = tailored;
+        bestScore       = atsScore;
+        bestKeywordGaps = keywordGaps;
+        bestAtsSummary  = atsSummary;
+      }
+
+      // Stop early if threshold met
+      if (atsScore !== null && atsScore >= ATS_THRESHOLD) break;
     }
 
-    // Step 3: Questions
+    // Step 3: Questions (run once on best tailored resume)
     const questionsRaw = await aiCall(
       QUESTIONS_SYSTEM,
       `Job Description:\n---\n${job.job_description ?? ''}\n---`,
@@ -276,10 +344,13 @@ serve(async (req: Request) => {
       .from('job_ai_results')
       .update({
         pipeline_status:    'complete',
-        tailored_resume_md: tailored,
-        ats_score:          atsScore,
-        keyword_gaps:       keywordGaps,
-        ats_summary:        atsSummary,
+        tailored_resume_md: bestTailored,
+        ats_score:          bestScore,
+        keyword_gaps:       bestKeywordGaps,
+        ats_summary:        bestAtsSummary,
+        ats_attempts:       atsAttempts,
+        provider:           aiProvider,
+        model:              aiModel,
         questions,
         error_message:      null,
         resume_id:          resumeId ?? null,
