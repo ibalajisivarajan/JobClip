@@ -17,6 +17,7 @@ type Job = {
   source_platform: string | null;
   raw_text: string | null;
   captured_at: string | null;
+  ai_status: string | null;
 };
 
 function DetailRow({ label, value }: { label: string; value?: string | null }) {
@@ -59,11 +60,24 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
         )}
       </div>
 
-      <ApplyActions
-        jobId={job.id}
-        roleTitle={job.role_title ?? ''}
-        jobDescription={job.job_description ?? ''}
-      />
+      {job.ai_status === 'disabled' ? (
+        <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-6">
+          <p className="text-sm text-slate-500">
+            AI processing was disabled when this job was saved.{' '}
+            Enable AI in{' '}
+            <a href="/dashboard/settings" className="text-blue-600 underline">
+              Settings
+            </a>{' '}
+            to process future jobs.
+          </p>
+        </div>
+      ) : (
+        <ApplyActions
+          jobId={job.id}
+          roleTitle={job.role_title ?? ''}
+          jobDescription={job.job_description ?? ''}
+        />
+      )}
 
       <dl className="mt-6 grid gap-4 md:grid-cols-2">
         <DetailRow label="Company" value={job.company} />
