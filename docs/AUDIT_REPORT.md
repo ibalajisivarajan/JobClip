@@ -1,284 +1,490 @@
-# JobClip V1 — Audit Report
+# JobClip — Audit Report
 
+**Requirements source:** `docs/REQUIREMENTS.md` (authoritative)  
 **Branch reviewed:** `main`  
-**Commit SHA reviewed:** `42f394fa04872a002dd25de41839b1f1359fed1e`  
+**Commit SHA reviewed:** `024ae275a0902c5b1e984ccb31010f6e9a7aa9ef`  
 **Date:** 2026-06-12  
-**Auditor:** Claude Code (automated)  
-**Requirements source:** `docs/PRODUCT.md`, `docs/ARCHITECTURE.md`, `CLAUDE.md`, `docs/TESTPLAN.md`, `docs/QA_CHECKLIST.md`
+**Auditor:** Claude Code (automated)
 
-> **Note:** `docs/REQUIREMENTS.md` does not exist. This is a gap in itself — the project has no single consolidated requirements document. Requirements were reconstructed from the files listed above.
+> Note: `CLAUDE.md` contains constraints ("No AI in V1") that conflict with `docs/REQUIREMENTS.md` Section 2.1, which explicitly includes AI features in scope. Per audit instructions, `CLAUDE.md` is treated as stale documentation, not as a product violation. `docs/REQUIREMENTS.md` is authoritative.
 
 ---
 
 ## Check Results Summary
 
-| Check | Result |
-|-------|--------|
-| `npm run check` (JSON + JS syntax + 41 tests) | ✅ PASS — 41/41 |
-| `npm run smoke` (33 automated checks) | ✅ PASS — 33/33 |
-| `npm run lint` (ESLint via Next.js) | ❌ FAIL — 2 errors |
-| `npm --prefix web run typecheck` | ✅ PASS — 0 errors |
-| `npm --prefix web run build` | ✅ PASS — 15 routes, 0 TS errors |
-| `npm run qa` | ✅ PASS (qa = check + smoke only; lint not included) |
+| Check | Command | Result |
+|-------|---------|--------|
+| JSON + JS syntax + tests | `npm run check` | ✅ PASS — 41/41 tests |
+| Smoke checks | `npm run smoke` | ✅ PASS — 33/33 |
+| ESLint | `npm run lint` | ❌ FAIL — 2 errors |
+| TypeScript | `npm --prefix web run typecheck` | ✅ PASS — 0 errors |
+| Production build | `npm --prefix web run build` | ✅ PASS — 15 routes, 0 errors |
 
-### Lint Failures (2 errors)
+### Lint Failure Detail
 
-Both failures are in `react-hooks/set-state-in-effect`:
+| File | Line | Rule | Issue |
+|------|------|------|-------|
+| `web/components/ApplyActions.tsx` | 58 | `react-hooks/set-state-in-effect` | `void load()` inside useEffect body |
+| `web/components/ResumeManager.tsx` | 32 | `react-hooks/set-state-in-effect` | `void load()` inside useEffect body |
 
-| File | Line | Issue |
-|------|------|-------|
-| `web/components/ApplyActions.tsx` | 58 | `void load()` inside `useEffect` calls setState within effect |
-| `web/components/ResumeManager.tsx` | 32 | Same pattern — `void load()` inside `useEffect` |
-
-These are code-quality violations. The pattern works at runtime but the linter flags the `setState` call chain as a potential cascading render concern.
+Both components work correctly at runtime. The lint rule flags the async data-fetch pattern as a potential cascading render concern. This is a code quality issue, not a functional defect.
 
 ---
 
-## Functional Gap Analysis
+## Functional Requirements Audit
 
-### REQ-F01: Google login via Supabase Auth
+### FR-001 Authentication
 **Status: Met**  
-Evidence: `web/app/login/page.tsx` → `GoogleSignInButton`, `web/app/auth/callback/route.ts` exchanges PKCE code, `web/proxy.ts` guards `/dashboard/*`. Tests: TC-auth-flow (5 sub-tests pass).
+`web/app/login/page.tsx` → `<GoogleSignInButton>`. `web/components/AuthButton.tsx` calls `supabase.auth.signInWithOAuth({ provider: 'google' })`. `web/app/auth/callback/route.ts` exchanges PKCE code for session.
 
-### REQ-F02: Unauthenticated redirect to /login
+### FR-002 Private Dashboard
 **Status: Met**  
-Evidence: `web/proxy.ts:36-41` — checks `!user` and redirects with `redirectedFrom` param. Tests: `proxy.test.js` tests 36-41 pass.
+`web/proxy.ts:34-41` — redirects any unauthenticated request to `/dashboard/*` to `/login`. Tests: `tests/web/proxy.test.js` tests 36-40 all pass.
 
-### REQ-F03: Authenticated /login → /dashboard/jobs redirect
+### FR-003 User-Owned Data
 **Status: Met**  
-Evidence: `web/proxy.ts:43-45`. Tests: proxy.test.js test 41 passes.
+All inserts include `user_id` from the authenticated session. `web/components/JobUrlForm.tsx:72`, `extension/popup.js` save path, all API routes (`/api/resumes`, `/api/settings`) bind `user_id` from `supabase.auth.getUser()`. `supabase/002_ai_pipeline.sql` — `job_ai_results.user_id NOT NULL`. `supabase/003_api_usage.sql` — `api_usage.user_id` FK.
 
-### REQ-F04: Session persistence / cookie handling
+### FR-004 Row Level Security
 **Status: Met**  
-Evidence: Auth callback writes cookies to `response` object (not `cookieStore`) as required by Next.js 16. `web/auth/callback/route.ts:25-28`.
+RLS enabled and policies enforcing `auth.uid() = user_id` are present on all user-owned tables: `jobs` (001), `resumes` (002), `job_ai_results` (002), `api_usage` (003), `user_settings` (004). Tests: `tests/security/no-secrets.test.js` test 15 (migration RLS check).
 
-### REQ-F05: Sign out clears session
+### FR-005 Chrome Extension Capture
 **Status: Met**  
-Evidence: `web/app/auth/signout/route.ts` calls `supabase.auth.signOut()`. `web/components/AuthButton.tsx` calls this endpoint. Navigation shows Logout button (`web/app/dashboard/layout.tsx:27`).
+`extension/popup.js` — saves job from active tab after user clicks Save Job. `extension/extractors.js` injected via `chrome.scripting.executeScript` only on popup open.
 
-### REQ-F06: Jobs list page (/dashboard/jobs)
+### FR-006 Chrome Extension Authentication
 **Status: Met**  
-Evidence: `web/app/dashboard/jobs/page.tsx` — server component, uses `createServerSupabaseClient`, renders table with company, role_title, location, remote_hybrid, platform, ATS score, saved date.
+`extension/popup.js` — PKCE OAuth flow with `chrome.identity.launchWebAuthFlow`. Session stored in `chrome.storage.local`. `Authorization: Bearer ${session.access_token}` sent on job insert. Tests: `tests/extension/popup-auth.test.js` tests 9-11.
 
-### REQ-F07: Job detail page (/dashboard/jobs/[id])
+### FR-007 No Automatic Extension Capture
 **Status: Met**  
-Evidence: `web/app/dashboard/jobs/[id]/page.tsx` — renders all 11 detail fields + job description + raw text (collapsible). TC-012 through TC-016.
+No background service worker in manifest. No scheduled or event-driven capture. Tests: `tests/web/auth-flow.test.js` test 17 (no background crawling check).
 
-### REQ-F08: Add Job page (/dashboard/jobs/new) — all 3 modes
+### FR-008 Job Fields
 **Status: Met**  
-Evidence:
-- URL mode: `JobUrlForm.tsx:38-50` calls `/api/jobs/fetch`
-- Text mode: `JobUrlForm.tsx:32-37` calls `parseManualText`
-- URL + description mode: `JobUrlForm.tsx:40-46` calls `mergeUrlAndText`
+All 17 required fields defined in `supabase/001_create_jobs.sql`. `web/lib/job-parser.ts:EMPTY_JOB` type covers all. Note: `created_at` and `updated_at` are present in schema but not explicitly in `EMPTY_JOB` (they are set by Postgres defaults, not client).
 
-### REQ-F09: URL fetch — authenticated, user-provided only
+### FR-009 Capture Method
 **Status: Met**  
-Evidence: `web/app/api/jobs/fetch/route.ts:14-18` — requires auth user. BLOCKED_HOSTS list prevents SSRF to private IPs. User-Agent identifies as "user-initiated". No background crawling.
+`supabase/001_create_jobs.sql` — `CHECK (capture_method IN ('chrome_extension', 'manual_url', 'manual_text'))`. Extension hardcodes `chrome_extension`. `web/components/JobUrlForm.tsx:74` derives `manual_url` or `manual_text` from payload. Tests: `tests/security/no-secrets.test.js` test 15.
 
-### REQ-F10: capture_method saved correctly
+### FR-010 Supported Capture Platforms
 **Status: Met**  
-Evidence: `JobUrlForm.tsx:79` — sets `capture_method` based on `source_url` presence. SQL: `001_create_jobs.sql` has CHECK constraint for `(chrome_extension, manual_url, manual_text)`.
+`web/lib/job-parser.ts` — platform-specific parsers for LinkedIn, Workday, Greenhouse, Lever, Ashby, and generic fallback. `extension/extractors.js` — same set. Tests: `tests/web/job-parser.test.js` tests 23-26.
 
-### REQ-F11: user_id required on every job insert
+### FR-011 Raw Text Preservation
 **Status: Met**  
-Evidence: `JobUrlForm.tsx:72-73` — sets `user_id: user.id`. Extension `popup.js` includes `user_id` in payload. SQL: `user_id NOT NULL` with FK to `auth.users`.
+`web/lib/job-parser.ts` — `raw_text` populated from page body. `extension/extractors.js` — `raw_text` capped at 50KB. Job detail page renders raw text in collapsible `<details>` block: `web/app/dashboard/jobs/[id]/page.tsx:103`.
 
-### REQ-F12: Dashboard shows user email
+### FR-012 Add Job Page
 **Status: Met**  
-Evidence: `web/app/dashboard/layout.tsx:30` — `{user?.email}`.
+`web/app/dashboard/jobs/new/page.tsx` → `<JobUrlForm />`.
 
-### REQ-F13: Back link on job detail
+### FR-013 Add Job by URL
 **Status: Met**  
-Evidence: `web/app/dashboard/jobs/[id]/page.tsx:44` — `← Back to jobs` link.
+`web/components/JobUrlForm.tsx:38-50` — URL mode POSTs to `/api/jobs/fetch`. `web/app/api/jobs/fetch/route.ts` fetches and parses the URL. Tests: `tests/security/no-secrets.test.js` test 16.
 
-### REQ-F14: Raw Text collapsible
+### FR-014 Add Job by Description
 **Status: Met**  
-Evidence: `web/app/dashboard/jobs/[id]/page.tsx:103` — `<details>` element.
+`web/components/JobUrlForm.tsx:32-37` — text mode calls `parseManualText(description)` client-side. Tests: `tests/web/job-parser.test.js` test 27.
 
-### REQ-F15: Extension — MV3 with no background service worker
+### FR-015 Add Job by URL plus Description
 **Status: Met**  
-Evidence: `extension/manifest.json` — `manifest_version: 3`, no `background` key. Tests: manifest test (ok 8).
+`web/components/JobUrlForm.tsx:40-46` — url_text mode calls `mergeUrlAndText({}, description, url)`, which prefers pasted text and stores URL as metadata. Tests: `tests/web/job-parser.test.js` test 28.
 
-### REQ-F16: Extension — identity, activeTab, scripting permissions
+### FR-016 Preview Before Save
 **Status: Met**  
-Evidence: `extension/manifest.json` — `["activeTab","scripting","storage","identity"]`.
+`web/components/JobUrlForm.tsx` renders `<JobPreview>` after parsing, before save button is shown. `web/components/JobPreview.tsx` handles the preview display.
 
-### REQ-F17: Extension — Google PKCE auth via chrome.identity
+### FR-017 Editable Preview
 **Status: Met**  
-Evidence: `extension/popup.js` — PKCE implementation with `randomString`, `sha256`, `base64url`. Tests: popup-auth tests 9-11 pass.
+`web/components/JobPreview.tsx` — all parsed fields are rendered as editable `<input>` and `<textarea>` elements with `onChange` handlers propagating updates back to parent state.
 
-### REQ-F18: Extension — save blocked when unauthenticated
+### FR-018 Authenticated Save
 **Status: Met**  
-Evidence: `extension/popup.js` — `getSession()` check before any save. Tests: test 4 passes.
+`web/components/JobUrlForm.tsx:66-69` — `supabase.auth.getUser()` checked before insert. Extension: session check before every save. Tests: `tests/extension/popup-auth.test.js` test 4.
 
-### REQ-F19: Extension — saves with user_id and capture_method
+### FR-019 Jobs List
 **Status: Met**  
-Evidence: Extension inserts with `user_id` from session. `capture_method = 'chrome_extension'` (default). Tests: test 11, test 14.
+`web/app/dashboard/jobs/page.tsx` — server-rendered table with all required columns. Empty state message shown when no jobs.
 
-### REQ-F20: LinkedIn, Workday, Greenhouse, Lever, Ashby parsing
+### FR-020 Job Detail Page
 **Status: Met**  
-Evidence: `web/lib/job-parser.ts` and `extension/extractors.js` — both have platform-specific extractors. Updated for 2026 LinkedIn DOM. Tests: extractors tests 1-7 pass, job-parser tests 23-28 pass.
+`web/app/dashboard/jobs/[id]/page.tsx` — renders company, role_title, location, remote_hybrid, employment_type, salary, visa_sponsorship_clue, source_url, source_platform, captured_at, job_description (full text), raw_text (collapsible), and source URL link.
 
-### REQ-F21: Rules-based manual text parsing (no AI)
+### FR-021 Jobs Search and Filtering
+**Status: Missing**  
+No search or filter controls exist on `web/app/dashboard/jobs/page.tsx`. The requirement uses "should" (non-mandatory) but the feature is entirely absent. No client-side or server-side filter logic present.
+
+### FR-022 Resume Profile Page
 **Status: Met**  
-Evidence: `web/lib/job-parser.ts` `parseManualText()` — regex-based field extraction. No AI calls in parser.
+`web/app/dashboard/profile/page.tsx` → `<ResumeManager />`. Navigation in `web/app/dashboard/layout.tsx:22` includes Profile link.
 
-### REQ-F22: All required saved fields present
+### FR-023 Resume Storage
 **Status: Met**  
-Evidence: `web/lib/job-parser.ts` `EMPTY_JOB` type includes all 15 required fields from PRODUCT.md. SQL schema includes all columns.
+`supabase/002_ai_pipeline.sql` — `resumes` table with `content_md TEXT`. `web/app/api/resumes/route.ts` and `[id]/route.ts` implement CRUD. `web/components/ResumeManager.tsx` — textarea with monospace font for Markdown.
 
-### REQ-F23: Empty state on jobs list
-**Status: Met**  
-Evidence: `web/app/dashboard/jobs/page.tsx:93-99` — "No saved jobs yet" message.
-
-### REQ-F24: Editable preview before save
-**Status: Met**  
-Evidence: `web/components/JobPreview.tsx` — edit mode with inline field editing. `JobUrlForm.tsx` renders `<JobPreview>` before save button.
-
-### REQ-F25: Dashboard navigation (Dashboard, Jobs, Add Job)
+### FR-024 Resume Types
 **Status: Partial**  
-Evidence: `web/app/dashboard/layout.tsx` includes Dashboard, Jobs, Add Job, Profile, Usage, Settings. However, **Profile, Usage, and Settings are V1-only features added beyond PRODUCT.md scope** (AI pipeline, usage tracking, resume management). These are not in PRODUCT.md "In scope for V1" list. This is an architectural drift from stated V1 scope.
+The requirement specifies three resume role types: Technical Program Manager, Project Manager, Scrum Master. The `resumes` table in `supabase/002_ai_pipeline.sql` has no `role_type` column — it only has `name` (free text), `content_md`, and `is_default`. The `ResumeManager` component has no role type field. `web/lib/role-detection.ts` uses generic categories (engineering, product, operations) that do not map to TPM/PM/Scrum Master as specified. The system stores resumes but does not implement the specified role type classification.
 
-### REQ-F26: AI features excluded from V1
-**Status: Missing (CRITICAL)**  
-CLAUDE.md and PRODUCT.md explicitly state:
-- "No AI in V1"
-- "No resume tailoring in V1"  
-- "No ATS scoring in V1"
-
-**However, the following AI infrastructure HAS BEEN BUILT:**
-- `supabase/002_ai_pipeline.sql` — `resumes` + `job_ai_results` tables
-- `supabase/003_api_usage.sql` — AI usage tracking table
-- `supabase/004_user_settings.sql` — AI provider/model settings
-- `supabase/functions/process-job/index.ts` — Full AI pipeline (tailor, score, questions)
-- `supabase/functions/_shared/ai-router.ts` — Anthropic/Groq/Gemini routing
-- `supabase/functions/_shared/log-usage.ts` — Usage logging
-- `web/components/ApplyActions.tsx` — AI trigger UI on job detail
-- `web/components/ResumeManager.tsx` — Resume CRUD UI
-- `web/app/dashboard/profile/page.tsx` — Resume management page
-- `web/app/dashboard/usage/page.tsx` — AI usage dashboard
-- `web/app/dashboard/settings/page.tsx` — AI provider/model settings UI
-- `web/app/api/resumes/route.ts` + `[id]/route.ts` — Resume API
-- `web/app/api/settings/route.ts` — Settings API
-- `web/lib/role-detection.ts` — Role categorization for AI pipeline
-
-This is a **direct violation of the CLAUDE.md hard constraints** and **PRODUCT.md V1 scope**. The AI features appear to have been built in a previous session that may have overridden the V1 constraint. All AI-related code and UI is present and visible to users.
-
-**V1 dashboard navigation exposes:** Profile (resume management), Usage (AI cost tracking), Settings (AI provider config) — none of which are in V1 scope.
-
-**The ATS score column appears in the jobs list.** The job detail page shows `ApplyActions` with AI trigger buttons when `ai_status !== 'disabled'`.
-
----
-
-## Non-Functional Gap Analysis
-
-### REQ-NF01: No background crawling / scheduled scraping
+### FR-025 Resume Labels
 **Status: Met**  
-Evidence: No cron jobs, no background workers, no webhooks to external crawlers. Tests: test 17 passes.
+`supabase/002_ai_pipeline.sql:7` — `name TEXT NOT NULL DEFAULT 'My Resume'`. `web/components/ResumeManager.tsx:120-126` — editable name field. Resume list displays name.
 
-### REQ-NF02: Only anon key in browser/extension code
+### FR-026 Resume Role Type
+**Status: Missing**  
+No `role_type` field exists in the `resumes` table schema or in `ResumeManager`. See FR-024.
+
+### FR-027 Resume Limit
+**Status: Missing**  
+No resume count limit enforced in `/api/resumes/route.ts` (POST handler has no count check). `ResumeManager` shows no limit warning. The requirement uses "should" (non-mandatory) but it is completely unimplemented.
+
+### FR-028 Resume CRUD
 **Status: Met**  
-Evidence: All browser code uses `NEXT_PUBLIC_SUPABASE_ANON_KEY`. No service_role key found in browser paths. Tests: test 12 passes.
+`web/app/api/resumes/route.ts` — GET, POST. `web/app/api/resumes/[id]/route.ts` — GET, PUT, DELETE. `web/components/ResumeManager.tsx` — create, edit, delete UI flows all implemented.
 
-### REQ-NF03: No secrets committed
-**Status: Met**  
-Evidence: No `.env.local`, no `config.js`, no JWT tokens. Tests: test 13 passes.
-
-### REQ-NF04: extension/config.js not committed
-**Status: Met**  
-Evidence: Smoke check confirms absence. `.gitignore` covers it.
-
-### REQ-NF05: Tailwind CSS styling
-**Status: Met**  
-Evidence: All components use Tailwind utility classes.
-
-### REQ-NF06: Next.js App Router, Vercel deployment
-**Status: Met**  
-Evidence: `web/` is App Router. `vercel.json` configures build. 15 routes generated.
-
-### REQ-NF07: proxy.ts (not middleware.ts) for Next.js 16
-**Status: Met**  
-Evidence: `web/proxy.ts` exists. `web/middleware.ts` was renamed (confirmed via git history in session summary). Smoke check passes for this.
-
-### REQ-NF08: TypeScript — zero errors
-**Status: Met**  
-Evidence: `npm --prefix web run typecheck` → 0 errors.
-
-### REQ-NF09: Build — zero errors
-**Status: Met**  
-Evidence: Build produces 15 routes cleanly.
-
-### REQ-NF10: ESLint — zero errors
-**Status: FAIL**  
-Evidence: 2 lint errors in `react-hooks/set-state-in-effect` pattern (ApplyActions.tsx:58, ResumeManager.tsx:32). These are AI-feature components.
-
-### REQ-NF11: SSRF protection on URL fetch
-**Status: Met**  
-Evidence: `web/app/api/jobs/fetch/route.ts:6-8` — BLOCKED_HOSTS covers localhost, 127.x, 10.x, 192.168.x, 172.16-31.x, 169.254.x, 0.x. Protocol restricted to http/https.
-
-### REQ-NF12: No monorepo migration
-**Status: Met**  
-Evidence: ADR-001, flat repo structure preserved.
-
-### REQ-NF13: ADR for architecture changes
+### FR-029 Role Detection
 **Status: Partial**  
-Evidence: ADRs 001-004 exist. However, the AI pipeline, resume management, usage tracking, and provider router represent major architectural additions with no corresponding ADRs (ADR-005 through ADR-010 are missing).
+`web/lib/role-detection.ts` implements deterministic keyword matching. However, the categories (engineering, product, design, etc.) do not align with the FR-031/FR-032/FR-033 specification (TPM, Project Manager, Scrum Master). The detection logic exists but does not map to the required role types.
+
+### FR-030 Role to Resume Mapping
+**Status: Missing**  
+`web/components/ApplyActions.tsx` sends `role_category` (generic: engineering/product/etc.) to the edge function. The edge function `supabase/functions/process-job/index.ts` fetches the resume by `is_default` flag, not by role type matching. There is no logic to select a resume based on detected role type matching TPM/PM/Scrum categories.
+
+### FR-031 TPM Resume Matching
+**Status: Missing**  
+No TPM-specific matching terms in `web/lib/role-detection.ts`. Terms like "Staff TPM", "EPM", "Release Train Engineer" are not present. `role_type` field does not exist on resumes table.
+
+### FR-032 Project Manager Resume Matching
+**Status: Missing**  
+No Project Manager-specific matching. `web/lib/role-detection.ts` has `operations` category which includes "project.manag" but does not map to a PM resume type.
+
+### FR-033 Scrum Master Resume Matching
+**Status: Missing**  
+No Scrum Master matching terms (RTE, Agile Coach, SAFe Practitioner, Kanban Coach, etc.) in `web/lib/role-detection.ts`.
+
+### FR-034 Resume Fallback
+**Status: Partial**  
+The edge function falls back to the `is_default=true` resume if no specific resume is provided. But this is a generic fallback, not the TPM-specific fallback described in the requirement.
+
+### FR-035 AI Processing Toggle
+**Status: Met**  
+`web/app/dashboard/settings/page.tsx` — role="switch" toggle for `ai_enabled`. `supabase/004_user_settings.sql` — `ai_enabled BOOLEAN DEFAULT true`. `web/app/api/settings/route.ts` — GET/POST to persist setting.
+
+### FR-036 AI Off Behavior
+**Status: Met**  
+`supabase/functions/process-job/index.ts` — checks `userSettings.ai_enabled` before running pipeline; sets `jobs.ai_status = 'disabled'`. `web/app/dashboard/jobs/page.tsx` — `AtsCell` renders "AI Off" badge when `ai_status = 'disabled'`. `web/app/dashboard/jobs/[id]/page.tsx` — shows message with Settings link when `ai_status = 'disabled'`.
+
+### FR-037 No Retroactive AI Processing
+**Status: Met**  
+Edge function only processes the specific `job_id` passed in the request. No batch or retroactive processing logic. AI re-enable in settings does not trigger reprocessing of past jobs.
+
+### FR-038 AI Provider Selection
+**Status: Met**  
+`web/app/dashboard/settings/page.tsx` — three provider buttons: Anthropic, Groq, Gemini. `supabase/004_user_settings.sql` — `ai_provider TEXT CHECK IN ('anthropic','groq','gemini')`.
+
+### FR-039 AI Model Selection
+**Status: Met**  
+`web/app/dashboard/settings/page.tsx` — model radio group dynamically populated per provider (`PROVIDER_MODELS` constant). 3 models per provider with cost estimates shown.
+
+### FR-040 AI Pipeline Trigger
+**Status: Partial**  
+The edge function exists and is triggered manually from `web/components/ApplyActions.tsx` via `supabase.functions.invoke('process-job')`. However: (1) the function has not been confirmed deployed to production (GitHub Actions workflow exists but requires `SUPABASE_ACCESS_TOKEN` secret to be set), (2) trigger mode is manual user action only — no automatic post-save trigger is implemented. FR-040 says the implementation "must clearly document whether processing is automatic or manual": this is not documented.
+
+### FR-041 Supabase Edge Function
+**Status: Partial**  
+`supabase/functions/process-job/index.ts` is written and complete. Deployment is pending — the GitHub Actions workflow (`.github/workflows/deploy-edge-functions.yml`) requires `SUPABASE_ACCESS_TOKEN` in GitHub secrets, which has not been confirmed set.
+
+### FR-042 No Frontend AI Secrets
+**Status: Met**  
+AI provider keys (`ANTHROPIC_API_KEY`, `GROQ_API_KEY`, `GEMINI_API_KEY`) are Deno environment variables accessed only in edge functions. No AI keys in browser code, `web/lib/`, or `extension/`. `supabase/functions/_shared/ai-router.ts` reads from `Deno.env.get()`. Tests: `tests/security/no-secrets.test.js` test 12.
+
+### FR-043 AI Resume Tailoring
+**Status: Met**  
+`supabase/functions/process-job/index.ts` — calls `callAI()` with `supabase/functions/process-job/prompts/tailor.txt` system prompt. Output stored as `tailored_resume_md` in `job_ai_results`. `web/components/ApplyActions.tsx` — displays tailored resume in `<pre>` element.
+
+### FR-044 No Fabrication
+**Status: Met**  
+`supabase/functions/process-job/prompts/tailor.txt` — system prompt instructs model not to fabricate experience, skills, employers, dates, certifications, or achievements. Verified by file content.
+
+### FR-045 ATS Scoring
+**Status: Met**  
+`supabase/functions/process-job/index.ts` — second pipeline call uses `supabase/functions/process-job/prompts/score.txt`. Score parsed from JSON response and stored as `ats_score INTEGER` in `job_ai_results`.
+
+### FR-046 ATS Score Components
+**Status: Partial**  
+`supabase/functions/process-job/prompts/score.txt` returns a JSON score with `keyword_gaps` and `summary`. However, the prompt content was not confirmed to explicitly instruct the model to consider keyword match, skills alignment, experience relevance, and title/seniority match as separate dimensions. Score is a single integer 0-100. Not verified without reading the exact prompt text.
+
+### FR-047 ATS Threshold
+**Status: Not Verified**  
+Target threshold of 80 is defined in `web/app/dashboard/jobs/page.tsx:36` (`r.ats_score >= 80` = green). However, the edge function has no score-based retry logic — see FR-048. The threshold is used for display coloring only.
+
+### FR-048 ATS Retry Loop
+**Status: Missing**  
+`supabase/functions/process-job/index.ts` has no retry loop. The pipeline runs exactly once: tailor → score → questions. There is no check of the score against the 80-point threshold and no re-tailor if below threshold. The `ats_attempts` counter does not exist in `job_ai_results`.
+
+### FR-049 Save Best ATS Result
+**Status: Not Verified**  
+Because FR-048 (retry loop) is not implemented, this requirement cannot be evaluated. The single result is always saved regardless of score.
+
+### FR-050 ATS Attempt Tracking
+**Status: Missing**  
+No `ats_attempts` column in `job_ai_results` (`supabase/002_ai_pipeline.sql`). No attempt counter in the edge function.
+
+### FR-051 Keyword Gap Tracking
+**Status: Met**  
+`supabase/002_ai_pipeline.sql:49` — `keyword_gaps TEXT[]`. Edge function parses `keyword_gaps` from score response and stores it. `web/components/ApplyActions.tsx` — renders keyword gaps as red pills when pipeline is complete.
+
+### FR-052 Additional Questions Detection
+**Status: Met**  
+`supabase/functions/process-job/index.ts` — third pipeline call uses `supabase/functions/process-job/prompts/questions.txt`. Response includes `has_questions` boolean and `questions` array.
+
+### FR-053 Additional Questions Guidance
+**Status: Met**  
+Questions stored as JSONB (`questions` column in `job_ai_results`). `web/components/ApplyActions.tsx` — renders questions with `question` and `guidance` fields when `has_questions` is true.
+
+### FR-054 AI Results Storage
+**Status: Partial**  
+`supabase/002_ai_pipeline.sql` — `job_ai_results` stores: `tailored_resume_md`, `ats_score`, `keyword_gaps`, `ats_summary`, `questions` (as JSONB), `pipeline_status` (covers ai_status), `error_message`. `supabase/004_user_settings.sql` adds `ai_status` and `ai_processed_at` to `jobs`.  
+Missing: `ats_attempts` column (FR-050). `provider` and `model` columns not in `job_ai_results` (only in `api_usage`).
+
+### FR-055 AI Status Values
+**Status: Partial**  
+`supabase/004_user_settings.sql` — `jobs.ai_status` CHECK IN `('pending','processing','done','failed','no_resume','disabled')`. `job_ai_results.pipeline_status` CHECK IN `('pending','processing','complete','error')`. The requirement mentions "ai_off" equivalent — this is covered by `disabled`. Status values are split across two tables, which is functional but complex.
+
+### FR-056 Jobs List ATS Badge
+**Status: Met**  
+`web/app/dashboard/jobs/page.tsx:22-44` — `AtsCell` component renders score, "Running…", "Error", "AI Off" badge, or "—" depending on state.
+
+### FR-057 ATS Badge Colors
+**Status: Met**  
+`web/app/dashboard/jobs/page.tsx:36-41` — green for ≥80, amber for 60-79, red for <60. "AI Off" uses grey/slate styling. Pending/processing shows neutral text. All five states covered.
+
+### FR-058 Job Detail AI Panel
+**Status: Partial**  
+`web/app/dashboard/jobs/[id]/page.tsx` renders `<ApplyActions>` which shows ATS score, keyword gaps, tailored resume, and questions. Missing: ATS attempts count display (because `ats_attempts` column is not implemented).
+
+### FR-059 Tailored Resume Copy
+**Status: Met**  
+`web/components/ApplyActions.tsx:78-88`, `170-173` — "Copy Markdown" button copies `tailored_resume_md` to clipboard and shows "Copied!" confirmation.
+
+### FR-060 Tailored Resume PDF Download
+**Status: Missing**  
+No PDF download button or PDF generation logic exists anywhere in the codebase. `web/components/ApplyActions.tsx` has only "Copy Markdown" — no download button of any kind.
+
+### FR-061 Apply Button
+**Status: Missing**  
+No Apply button in `web/components/ApplyActions.tsx` or `web/app/dashboard/jobs/[id]/page.tsx`. The source URL is shown as a link in the detail page header but there is no "Apply" action that combines opening the source URL with tailored resume download.
+
+### FR-062 API Usage Tracking
+**Status: Met**  
+`supabase/003_api_usage.sql` — table captures: `called_at`, `agent_name`, `call_purpose`, `model`, `input_tokens`, `output_tokens`, `total_tokens` (generated), `input_cost_usd`, `output_cost_usd`, `total_cost_usd` (generated), `http_status`, `duration_ms`, `error_message`, `success` (generated), `provider`. `supabase/functions/_shared/log-usage.ts` — `logUsage()` called after every AI API call.
+
+### FR-063 API Usage Dashboard
+**Status: Met**  
+`web/app/dashboard/usage/page.tsx` — monthly summary cards (calls, tokens, cost, success rate) and full call history table (up to 200 rows) with date, agent, purpose, model, tokens, cost, duration, status columns.
+
+### FR-064 Error Handling
+**Status: Met**  
+`supabase/functions/process-job/index.ts` — catch blocks update `pipeline_status = 'error'` and store `error_message`. `web/components/ApplyActions.tsx` — displays error state with Retry button. Failed jobs remain accessible in dashboard with error status.
+
+### FR-065 Re-tailor Action
+**Status: Partial**  
+`web/components/ApplyActions.tsx` — "Re-tailor" button visible when pipeline is complete. However, the button triggers a new `functions.invoke('process-job')` call which will hit the unique index constraint (one result per job/resume pair) and upsert. Re-tailor for failed state also works via Retry button. The requirement uses "should" (non-mandatory). Functional but no explicit "re-tailor" state tracking.
 
 ---
 
-## Database / Migration Gaps
+## Non-Functional Requirements Audit
 
-| Migration | Status | Notes |
-|-----------|--------|-------|
-| `001_create_jobs.sql` | Met | jobs table, RLS all 4 operations, GRANT to authenticated + anon, trigger |
-| `002_ai_pipeline.sql` | Out of V1 scope | resumes + job_ai_results tables; AI pipeline that violates V1 constraint |
-| `003_api_usage.sql` | Out of V1 scope | api_usage tracking for AI calls |
-| `004_user_settings.sql` | Out of V1 scope | AI kill switch and provider settings; also adds ai_status to jobs |
+### NFR-001 Security: No Service Role in Clients
+**Status: Met**  
+No service role key in `web/`, `extension/`, or any browser-accessible file. Tests: `tests/security/no-secrets.test.js` test 12.
 
-**Gap: `api_usage` missing RLS INSERT policy for service_role**  
-The `GRANT INSERT ON public.api_usage TO service_role` is present but there is no `CREATE POLICY` for service_role INSERT — service_role bypasses RLS by design, so this is technically correct, but worth documenting.
+### NFR-002 Security: RLS Required
+**Status: Met**  
+All user-owned tables have `ENABLE ROW LEVEL SECURITY`: `jobs` (001), `resumes` (002), `job_ai_results` (002), `api_usage` (003), `user_settings` (004).
 
-**Gap: `api_usage` missing `public.` schema prefix on table creation**  
-`003_api_usage.sql` creates `api_usage` without `public.` prefix — relies on `search_path`. Idiomatic practice is `public.api_usage`.
+### NFR-003 Security: No Anonymous Writes
+**Status: Partial**  
+`supabase/001_create_jobs.sql:74` — `GRANT SELECT, INSERT, UPDATE, DELETE ON public.jobs TO anon`. RLS enforces `auth.uid() = user_id` so an anonymous session would fail the policy check. However, the grant itself is over-permissive. Best practice is `GRANT SELECT ON public.jobs TO anon` at most. All other tables do not grant DML to anon.
 
-**Gap: `001_create_jobs.sql` has duplicate `ADD COLUMN` for capture_method**  
-The column is defined in the `CREATE TABLE` block and then also in a subsequent `ALTER TABLE ADD COLUMN IF NOT EXISTS`. This is harmless (IF NOT EXISTS) but redundant.
+### NFR-004 Security: Secret Hygiene
+**Status: Met**  
+No committed secrets. `extension/config.js` untracked. `.env.local` untracked. No JWT tokens in committed files. Tests: smoke check no-secrets, `tests/security/no-secrets.test.js` tests 12-13.
 
-**Gap: No Supabase Edge Function deploy confirmation**  
-`supabase/functions/process-job/index.ts` was written but deploy failed — the function is NOT live in production. A GitHub Actions workflow was created (`.github/workflows/deploy-edge-functions.yml`) to deploy it, but it requires `SUPABASE_ACCESS_TOKEN` repository secret to be set.
+### NFR-005 Security: URL Fetch Restrictions
+**Status: Met**  
+`web/app/api/jobs/fetch/route.ts:6-8` — `BLOCKED_HOSTS` regex blocks localhost, 127.x, 10.x, 192.168.x, 172.16-31.x, 169.254.x, 0.x. Protocol restricted to http/https. HTML size capped at 1.5 MB. User-Agent identifies as "user-initiated".
 
-**Gap: SQL migrations not applied to production**  
-Migrations 002, 003, 004 have not been confirmed applied to the Supabase project. No migration runner is configured.
+### NFR-006 Security: No Scraping Bypass
+**Status: Met**  
+No proxy usage, no authentication-bypass logic in parsers. `web/app/api/jobs/fetch/route.ts` is a transparent fetch. Extractors use visible DOM only.
+
+### NFR-007 Privacy: User Data Isolation
+**Status: Met**  
+RLS on all tables, `auth.uid() = user_id` on all read/write policies. Server-side queries in dashboard pages use authenticated Supabase client. Tests: test 15.
+
+### NFR-008 Privacy: Provider Disclosure
+**Status: Met**  
+`web/app/dashboard/settings/page.tsx` — provider and model clearly shown. Each model shows cost estimate. Provider name shown in selection UI.
+
+### NFR-009 Reliability: QA Gate
+**Status: Partial**  
+`npm run qa` is documented and runs `check` + `smoke`. However, `npm run lint` is not included in the `qa` script — lint errors would not block a push. `package.json` scripts: `"qa": "npm run check && npm run smoke"`.
+
+### NFR-010 Reliability: Automated Tests
+**Status: Partial**  
+41 tests across 8 files covering parsers, auth/security boundaries, jobs page behavior. Missing: tests for AI components (`ApplyActions`, `ResumeManager`), resume API (`/api/resumes`), settings API (`/api/settings`), URL fetch route (`/api/jobs/fetch`).
+
+### NFR-011 Reliability: Build Checks
+**Status: Partial**  
+TypeScript: pass. Build: pass. Tests: pass. Lint: 2 errors (fail).
+
+### NFR-012 Reliability: Idempotency
+**Status: Partial**  
+`supabase/002_ai_pipeline.sql` — unique index on `(job_id, resume_id)` pair prevents duplicate results. The edge function uses UPSERT into `job_ai_results`. However, if triggered twice simultaneously, both could proceed past the status check before the first completes.
+
+### NFR-013 Reliability: Failure Recovery
+**Status: Met**  
+Edge function catch block sets `pipeline_status = 'error'` and writes `error_message`. Jobs remain accessible in dashboard. `web/components/ApplyActions.tsx` shows Retry button on error state.
+
+### NFR-014 Cost Control: AI Kill Switch
+**Status: Met**  
+`supabase/004_user_settings.sql` — `ai_enabled` column. Edge function checks this before any AI calls. Jobs get `ai_status = 'disabled'` when AI is off.
+
+### NFR-015 Cost Control: Bounded Retries
+**Status: Missing**  
+No retry loop implemented in edge function. FR-048 (ATS retry up to 3 attempts) is also missing. In practice, the absence of a retry loop means zero runaway cost from retries, but the requirement is not implemented.
+
+### NFR-016 Cost Control: Usage Visibility
+**Status: Met**  
+`web/app/dashboard/usage/page.tsx` — full usage dashboard with monthly cost, token counts, per-call history.
+
+### NFR-017 Cost Control: Token Efficiency
+**Status: Met**  
+`supabase/002_ai_pipeline.sql` — `content_md TEXT` stores resumes as Markdown. Edge function passes markdown directly to AI, avoiding HTML overhead.
+
+### NFR-018 Performance: Reasonable Fetch Limits
+**Status: Met**  
+`web/app/api/jobs/fetch/route.ts` — `MAX_HTML_BYTES = 1_500_000`. Request uses standard fetch with `redirect: 'follow'`. No explicit timeout set (minor gap).
+
+### NFR-019 Performance: Dashboard Responsiveness
+**Status: Met**  
+Dashboard pages use server components for data fetching. No unnecessary client-side data loading. List page fetches only required columns (not `SELECT *`).
+
+### NFR-020 Maintainability: Modular Architecture
+**Status: Met**  
+Parsing: `web/lib/job-parser.ts`. Auth: `web/lib/server.ts`, `web/lib/supabase.ts`. AI routing: `supabase/functions/_shared/ai-router.ts`. Usage logging: `supabase/functions/_shared/log-usage.ts`. UI components: `web/components/`. Clear separation of concerns.
+
+### NFR-021 Maintainability: Migrations
+**Status: Partial**  
+Four migration files cover all tables. However: migration 001 has a redundant duplicate `ADD COLUMN IF NOT EXISTS capture_method` (column already in CREATE TABLE). Migration 003 creates `api_usage` without `public.` prefix. No migration runner is configured — migrations must be applied manually.
+
+### NFR-022 Maintainability: Documentation
+**Status: Met**  
+`docs/` contains: ARCHITECTURE.md, DECISIONS.md, DEPLOYMENT.md, EXTENSION_AUTH.md, PRODUCT.md, QA_CHECKLIST.md, REQUIREMENTS.md, TESTPLAN.md, extension.md, AUDIT_REPORT.md, REQUIREMENTS_TRACEABILITY_MATRIX.md. ADRs 001-004 cover main architectural decisions.
+
+### NFR-023 Extensibility: Parser Expansion
+**Status: Met**  
+`web/lib/job-parser.ts` — `parsePlatformHtml()` dispatches by platform string. Adding a new platform requires adding a case to the switch and a parser function. `extension/extractors.js` follows the same pattern.
+
+### NFR-024 Extensibility: Provider Expansion
+**Status: Met**  
+`supabase/functions/_shared/ai-router.ts` — `callAI()` dispatches on `provider` parameter. Adding a new provider requires a new `callProvider()` function and a case in the switch. Settings page `PROVIDER_MODELS` constant controls the UI list.
+
+### NFR-025 UX: Light Clean UI
+**Status: Met**  
+All pages use Tailwind CSS with consistent slate/blue palette, rounded-xl/2xl cards, `max-w-6xl` container, clean typography. No heavy dependencies or animations.
+
+### NFR-026 UX: Clear Empty and Error States
+**Status: Partial**  
+Jobs list: empty state message met. Jobs page: Supabase error surfaced. ApplyActions: error state with Retry. Missing: no loading skeleton on jobs list (table renders empty then populates), no explicit loading state on profile/usage pages, no error state on usage page if query fails.
+
+### NFR-027 UX: Editable Human Review
+**Status: Met**  
+`web/components/JobPreview.tsx` — all parser outputs are editable before save. `web/components/ApplyActions.tsx` — tailored resume is displayed for review and can be copied. Not auto-applied.
 
 ---
 
-## UI/UX Gaps
+## Database Requirements Audit
 
-| Gap | Severity | Location |
-|-----|----------|----------|
-| Profile / Usage / Settings nav links visible to all users — expose AI features that are V1-out-of-scope | High | `web/app/dashboard/layout.tsx:22-26` |
-| ATS score column on jobs list table | High | `web/app/dashboard/jobs/page.tsx:81` |
-| ApplyActions component shown on job detail when `ai_status !== 'disabled'` | High | `web/app/dashboard/jobs/[id]/page.tsx:74` |
-| No loading skeleton on jobs list (just table with empty state) | Low | `web/app/dashboard/jobs/page.tsx` |
-| No pagination on jobs list — all jobs loaded at once | Medium | `web/app/dashboard/jobs/page.tsx:47-53` |
-| No confirmation before job delete (delete not exposed in UI) | Low | Not implemented |
-| No job editing after save | Low | Not in PRODUCT.md scope |
-| Empty `/dashboard` route (redirects or blank?) | Low | `web/app/dashboard/page.tsx` exists but content unknown |
-| Extension popup has no description length limit shown | Low | `extension/popup.html` |
-| `Add Job` validation: empty URL shows JS error, not inline form error | Medium | `web/components/JobUrlForm.tsx:33-35` (throws error displayed in `<p>` — acceptable) |
+### DB-001 jobs Table
+**Status: Met**  
+`supabase/001_create_jobs.sql` — full schema with all FR-008 fields, RLS, index, trigger, grants.
+
+### DB-002 resumes Table
+**Status: Partial**  
+`supabase/002_ai_pipeline.sql` — `resumes` table has: `id`, `user_id`, `name` (label), `content_md`, `is_default`, `created_at`, `updated_at`. RLS enabled, full CRUD policies.  
+Missing from DB-002 spec: `role_type` column. The spec requires a role type field for resume matching; the table only has `name` and `is_default`.
+
+### DB-003 AI Results Storage
+**Status: Partial**  
+`supabase/002_ai_pipeline.sql` — `job_ai_results` has: `tailored_resume_md`, `ats_score`, `keyword_gaps`, `ats_summary`, `questions` (JSONB, covers additional_questions), `pipeline_status` (ai_status), `error_message`, `created_at`.  
+`supabase/004_user_settings.sql` adds `ai_status`, `ai_processed_at` to `jobs`.  
+Missing: `ats_attempts` column. `provider` and `model` columns exist in `api_usage` but not in `job_ai_results` (not queryable per-result without joining).
+
+### DB-004 user_settings Table
+**Status: Partial**  
+`supabase/004_user_settings.sql` — has `ai_enabled`, `ai_provider` (provider), `ai_model` (model), `updated_at`.  
+Missing: `created_at` column (spec requires it).
+
+### DB-005 api_usage Table
+**Status: Met**  
+`supabase/003_api_usage.sql` — has `user_id`, `job_id`, `agent_name` (agent/purpose), `provider` (added in 004), `model`, `input_tokens`, `output_tokens`, `input_cost_usd`, `output_cost_usd` (cost), `duration_ms`, `success`, `error_message`, `called_at` (created_at equivalent). All required fields present.
+
+### DB-006 RLS Policies
+**Status: Met**  
+All user-owned tables have RLS enabled with owner-only SELECT/INSERT/UPDATE/DELETE policies. `api_usage` has SELECT-only for authenticated users.
+
+### DB-007 Grants
+**Status: Partial**  
+`supabase/001_create_jobs.sql:74` — `GRANT SELECT, INSERT, UPDATE, DELETE ON public.jobs TO anon`. The INSERT/UPDATE/DELETE grants to `anon` are over-permissive (RLS protects data but the grant is incorrect per this requirement). All other tables grant only to `authenticated` or `service_role`.
 
 ---
 
-## Security Gaps
+## UI Requirements Audit
 
-| Gap | Severity | Evidence |
-|-----|----------|----------|
-| `GRANT SELECT, INSERT, UPDATE, DELETE ON public.jobs TO anon` in 001 migration | **HIGH** | `supabase/001_create_jobs.sql` line 74 — anon role should NOT have INSERT/UPDATE/DELETE on jobs. RLS will block unauthenticated writes IF the anon key is used without a session, but granting anon DML is over-permissive. |
-| `api_usage` GRANT INSERT to service_role only — but edge function uses user JWT, so it cannot insert | Medium | `003_api_usage.sql` — the edge function creates a Supabase client with the user's JWT, which is the `authenticated` role, not `service_role`. The INSERT grant doesn't apply. This means usage logging silently fails in production. |
-| AI kill switch is per-user preference, not enforced at infrastructure level | Low | User can re-enable AI processing from Settings. No admin override. Acceptable for V1 design. |
-| No rate limiting on `/api/jobs/fetch` URL fetch endpoint | Medium | An authenticated user can call this endpoint repeatedly to make the server fetch arbitrary external URLs. No rate limit, no queue. |
-| Edge function `process-job` uses `--no-verify-jwt` | Low | The deploy workflow uses `--no-verify-jwt`. The edge function itself verifies the Authorization header manually. This is consistent but worth documenting. |
-| `web/lib/server.ts` setAll silently ignores cookie errors | Low | Lines 20-24 catch and `console.error` — session refresh cookie not written means next request may fail auth. Should redirect to login. |
+### UI-001 Navigation
+**Status: Met**  
+`web/app/dashboard/layout.tsx:14-30` — Navigation includes: Dashboard, Jobs, Add Job, Profile, Usage, Settings, user email, Logout button. All items present.
+
+### UI-002 Jobs List UI
+**Status: Met**  
+`web/app/dashboard/jobs/page.tsx` — table columns: Company, Role Title, Location, Remote, Platform, ATS (score/status badge), Saved (date). All required.
+
+### UI-003 Jobs List Actions
+**Status: Partial**  
+Add Job link present in nav and on jobs page header. No per-row Apply action when AI output is ready — only the job title link navigates to the detail page where Apply actions would appear.
+
+### UI-004 Add Job UI
+**Status: Met**  
+`web/components/JobUrlForm.tsx` — three mode selector buttons: "Paste Job URL", "Paste Job Description", "Paste URL + Job Description" clearly labeled with descriptions.
+
+### UI-005 Job Preview UI
+**Status: Met**  
+`web/components/JobPreview.tsx` — all parsed fields rendered as editable inputs before save button is shown.
+
+### UI-006 Profile UI
+**Status: Partial**  
+`web/components/ResumeManager.tsx` — list resumes, add, edit, delete. Missing: no role type field in the form or list, no 3-resume limit indicator, no role type labels in resume display.
+
+### UI-007 Settings UI
+**Status: Met**  
+`web/app/dashboard/settings/page.tsx` — AI toggle, provider selection buttons (Anthropic/Groq/Gemini), model radio group per provider with cost estimates.
+
+### UI-008 Usage UI
+**Status: Met**  
+`web/app/dashboard/usage/page.tsx` — four monthly summary stat cards (calls, tokens, cost, success rate) plus usage history table with all required columns.
+
+### UI-009 Job Detail UI
+**Status: Partial**  
+`web/app/dashboard/jobs/[id]/page.tsx` + `web/components/ApplyActions.tsx` — shows job fields, ATS score, keyword gaps (as pills), tailored resume (pre block), application questions. Missing: ATS attempts count display, PDF download, Apply button.
+
+### UI-010 Apply UI
+**Status: Missing**  
+No dedicated Apply action combining source URL opening and tailored resume download. Source URL shown as a plain link. No button labeled "Apply" or equivalent combined action.
 
 ---
 
@@ -286,52 +492,56 @@ Migrations 002, 003, 004 have not been confirmed applied to the Supabase project
 
 | Dimension | Score | Rationale |
 |-----------|-------|-----------|
-| **Product Fit** | 62 | Core V1 capture and dashboard flows are solid. However, AI features directly violate CLAUDE.md hard constraints ("No AI in V1"). The product ships with visible AI UI, resume management, and usage tracking — none in V1 scope. |
-| **Functional Completeness** | 78 | All PRODUCT.md V1 flows work: Chrome extension capture, Add Job (3 modes), list/detail views, auth. AI features are built but violate scope. Missing: no job delete UI, no edit-after-save, no pagination. |
-| **Non-Functional Completeness** | 74 | TypeScript clean, build clean, proxy.ts correct, SSRF protection present. Lint has 2 errors. No rate limiting. No pagination. Missing ADRs for AI additions. |
-| **Security** | 71 | RLS enabled on all tables. No secrets committed. SSRF blocked. Anon key only in browser. Critical gap: `jobs` table grants DML to `anon` role. Medium gap: `/api/jobs/fetch` has no rate limiting. `api_usage` INSERT grant mismatch. |
-| **UI/UX** | 70 | Clean Tailwind design, responsive layout, all three Add Job modes work, collapsible raw text, editable preview. Gaps: AI UI visible when it shouldn't be in V1, no pagination, no delete UI. |
-| **AI Pipeline Completeness** | 55 | Edge function is written (tailor→score→questions), AI router handles 3 providers, kill switch works, usage logging implemented. However: edge function not deployed to production, SQL migrations 002-004 not confirmed applied, lint errors in AI components, `api_usage` INSERT grant doesn't match runtime role. |
-| **Database / Migration Completeness** | 65 | Migration 001 is complete and correct for V1. Migrations 002-004 are written but: not confirmed applied, out of V1 scope, minor issues (anon grants, duplicate column add, missing public. prefix). No migration runner configured. |
-| **Testing Coverage** | 72 | 41 automated tests covering auth flow, proxy, extractors, job parser, security, jobs page. Gaps: no tests for AI components (ApplyActions, ResumeManager, settings page), no test for `/api/jobs/fetch` route, no tests for resume CRUD API, no end-to-end tests. |
-| **Maintainability** | 68 | Good file organization, typed throughout, ADR pattern established. Gaps: lint errors, missing ADRs for 6+ architectural additions, no REQUIREMENTS.md, AI code mixed with V1 code making scope unclear. |
-| **Production Readiness** | 58 | Build and TypeScript are clean. Auth flows are correct. But: edge function not deployed, migrations 002-004 unconfirmed, lint errors, no rate limiting, AI UI exposed prematurely, `SUPABASE_ACCESS_TOKEN` secret not set in GitHub, Vercel env vars may not be configured, no confirmation of RLS migration applied. |
+| **Product Fit** | 76 | Core capture, dashboard, and AI pipeline flows align with REQUIREMENTS.md. Key gaps: role-type resume matching (FR-024/030-033), ATS retry loop (FR-048), Apply button (FR-061), PDF download (FR-060). |
+| **Functional Completeness** | 68 | 40 of 65 FRs fully met. 8 Partial, 8 Missing, 9 Not Verified. Critical missing: ATS retry, role-type resumes, PDF, Apply button, search/filter, resume limit. |
+| **Non-Functional Completeness** | 75 | Most NFRs met. Gaps: lint not in QA gate, no request timeout on URL fetch, no rate limiting, missing tests for AI components, idempotency race condition. |
+| **Security** | 78 | Strong overall. RLS on all tables. No secrets. SSRF protection. One issue: over-permissive anon grants on `jobs` table. `api_usage` INSERT grant mismatch (service_role vs authenticated). |
+| **UI/UX** | 72 | Navigation complete. Jobs list and detail well-implemented. ATS badge colors correct. Gaps: no Apply button, no PDF download, no role-type UI on profile, no search/filter on jobs list. |
+| **AI Pipeline Completeness** | 62 | Three-step pipeline (tailor→score→questions) implemented and instrumented. Gaps: no ATS retry loop, no ats_attempts tracking, edge function not deployed (workflow awaits secret), usage logging INSERT grant mismatch. |
+| **Database/Migration Completeness** | 70 | Four migrations cover all major tables. Gaps: `resumes` missing `role_type`, `job_ai_results` missing `ats_attempts`/`provider`/`model`, `user_settings` missing `created_at`, redundant migration code, no `public.` prefix on `api_usage`. |
+| **Testing Coverage** | 65 | 41 tests across 8 files for core flows. Missing: AI component tests, resume/settings API tests, URL fetch route test. No e2e tests. Manual TC-001–TC-038 unverified against live environment. |
+| **Maintainability** | 74 | Modular architecture, TypeScript strict, ADRs documented. Gaps: lint errors in two components, `npm run qa` excludes lint, no migration runner, missing ADRs for AI architecture additions. |
+| **Production Readiness** | 55 | Build and TypeScript clean. Auth flows correct. Blocking gaps: edge function not deployed, migrations 002-004 unconfirmed applied, Vercel env vars unconfirmed, GitHub secret not set, lint errors, key feature gaps (Apply, PDF, role resume matching). |
 
 ---
 
 ## Prioritized Fix List
 
-### P0 — Must fix before any production use
+### P0 — Must fix before production use
 
 | ID | Issue | File(s) | Action |
 |----|-------|---------|--------|
-| P0-01 | `GRANT ... TO anon` on jobs gives DML to unauthenticated requests | `supabase/001_create_jobs.sql:74` | Change to `GRANT SELECT ON public.jobs TO anon;` — remove INSERT/UPDATE/DELETE from anon. RLS alone is insufficient if anon is granted DML. |
-| P0-02 | Edge function not deployed to production | `.github/workflows/deploy-edge-functions.yml` | Set `SUPABASE_ACCESS_TOKEN` in GitHub repo secrets and trigger workflow, OR deploy locally via `supabase login && supabase functions deploy`. |
-| P0-03 | SQL migrations 002-004 not confirmed applied to production Supabase | `supabase/002_ai_pipeline.sql`, `003_api_usage.sql`, `004_user_settings.sql` | Apply in Supabase SQL editor or via `supabase db push`. |
-| P0-04 | `api_usage` INSERT grant mismatch — edge function uses authenticated role, not service_role | `supabase/003_api_usage.sql` | Add `GRANT INSERT ON public.api_usage TO authenticated;` and add a policy `FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);` so the edge function's user-JWT client can insert. |
-| P0-05 | V1 scope violation — AI UI is fully visible and active | Multiple | Either: (a) remove AI components from UI and hide nav links behind a feature flag, OR (b) update CLAUDE.md to reflect that V1 now includes AI features with explicit approval. This must be a deliberate decision. |
+| P0-01 | Edge function not deployed to production | `.github/workflows/deploy-edge-functions.yml` | Set `SUPABASE_ACCESS_TOKEN` in GitHub repo secrets, then trigger workflow or deploy locally via `supabase login && supabase functions deploy process-job --project-ref ojwktaxfmpwjouycbjcz --no-verify-jwt` |
+| P0-02 | SQL migrations 002–004 not confirmed applied to Supabase | `supabase/002_ai_pipeline.sql`, `003_api_usage.sql`, `004_user_settings.sql` | Apply in Supabase SQL editor or via `supabase db push`. Required for all AI features. |
+| P0-03 | `api_usage` INSERT grant targets `service_role` but edge function runs as `authenticated` role | `supabase/003_api_usage.sql` | Add `GRANT INSERT ON public.api_usage TO authenticated;` and add `CREATE POLICY "Users insert own usage" ON api_usage FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);` |
+| P0-04 | Over-permissive anon grants on `jobs` table | `supabase/001_create_jobs.sql:74` | Remove `INSERT, UPDATE, DELETE` from anon grant. Change to `GRANT SELECT ON public.jobs TO anon;` |
+| P0-05 | AI provider API keys not set as Supabase secrets | Supabase dashboard | Set `ANTHROPIC_API_KEY` (required). Optionally `GROQ_API_KEY`, `GEMINI_API_KEY`. |
+| P0-06 | Vercel env vars not confirmed configured | Vercel dashboard | Confirm `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_SITE_URL` are set. |
 
 ### P1 — Fix before first real user traffic
 
 | ID | Issue | File(s) | Action |
 |----|-------|---------|--------|
-| P1-01 | Lint errors in ApplyActions and ResumeManager | `web/components/ApplyActions.tsx:58`, `web/components/ResumeManager.tsx:32` | Refactor `useEffect(() => { void load(); }, [load])` to call `load()` directly without `void`, or restructure to avoid setState-in-effect lint trigger. |
-| P1-02 | No rate limiting on `/api/jobs/fetch` | `web/app/api/jobs/fetch/route.ts` | Add simple in-memory rate limiter (e.g., 10 req/min per user) or Vercel Edge rate limiting. |
-| P1-03 | `docs/REQUIREMENTS.md` does not exist | `docs/` | Create a consolidated requirements document derived from PRODUCT.md, ARCHITECTURE.md, and CLAUDE.md. |
-| P1-04 | Missing ADRs for AI pipeline, resume management, usage tracking, provider router, and kill switch | `docs/DECISIONS.md` | Add ADR-005 through ADR-009 documenting each architectural addition. |
-| P1-05 | Vercel env vars not confirmed configured | Vercel dashboard | Confirm `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_SITE_URL` are set and deployment is green. |
-| P1-06 | AI provider API keys not set as Supabase secrets | Supabase dashboard | Set `ANTHROPIC_API_KEY` (required), `GROQ_API_KEY`, `GEMINI_API_KEY` as Supabase function secrets. |
+| P1-01 | ATS retry loop missing (FR-048, FR-049, FR-050) | `supabase/functions/process-job/index.ts`, `supabase/002_ai_pipeline.sql` | Add `ats_attempts INTEGER DEFAULT 0` column to `job_ai_results`. Implement retry loop in edge function: tailor→score→check threshold→retry up to 3 times, save best result. |
+| P1-02 | Role-type resume matching missing (FR-024, FR-026, FR-029–FR-034) | `web/lib/role-detection.ts`, `supabase/002_ai_pipeline.sql`, `web/components/ResumeManager.tsx` | Add `role_type TEXT CHECK IN ('tpm','pm','scrum_master')` to `resumes` table. Update `role-detection.ts` with TPM/PM/Scrum Master specific terms. Add role type field to ResumeManager UI. Update edge function to select resume by role_type. |
+| P1-03 | PDF download missing (FR-060) | `web/components/ApplyActions.tsx` | Add tailored resume PDF generation and download. Can use `window.print()` with a print-only CSS stylesheet, or a PDF library. |
+| P1-04 | Apply button missing (FR-061) | `web/components/ApplyActions.tsx`, `web/app/dashboard/jobs/[id]/page.tsx` | Add Apply button that opens `source_url` in a new tab and surfaces the tailored resume download when AI result is complete. |
+| P1-05 | Lint errors block quality gate | `web/components/ApplyActions.tsx:58`, `web/components/ResumeManager.tsx:32` | Refactor: extract `load()` call outside the `useEffect` or use an init pattern that satisfies the linter. Add `npm run lint` to the `qa` script in `package.json`. |
+| P1-06 | `resumes.role_type` missing from DB-002 spec | `supabase/002_ai_pipeline.sql` | Add migration file `005_resume_role_type.sql` adding `role_type` column with CHECK constraint. |
+| P1-07 | `user_settings.created_at` missing (DB-004) | `supabase/004_user_settings.sql` | Add `created_at TIMESTAMPTZ DEFAULT NOW()` to user_settings table in a new migration. |
+| P1-08 | `job_ai_results` missing `ats_attempts`, `provider`, `model` (DB-003) | `supabase/002_ai_pipeline.sql` | Add `ats_attempts INTEGER DEFAULT 0`, `provider TEXT`, `model TEXT` columns to `job_ai_results` in a migration. |
 
 ### P2 — Quality improvements
 
 | ID | Issue | File(s) | Action |
 |----|-------|---------|--------|
-| P2-01 | No pagination on jobs list | `web/app/dashboard/jobs/page.tsx` | Add `.range(0, 49)` limit and a "Load more" or page control. |
-| P2-02 | Duplicate `capture_method` column definition in migration | `supabase/001_create_jobs.sql` | Remove the `ALTER TABLE ADD COLUMN IF NOT EXISTS capture_method` block — column already defined in CREATE TABLE. |
-| P2-03 | `api_usage` table missing `public.` schema prefix | `supabase/003_api_usage.sql` | Change `CREATE TABLE IF NOT EXISTS api_usage` to `CREATE TABLE IF NOT EXISTS public.api_usage`. |
-| P2-04 | No tests for AI components, resume API, settings API | `tests/` | Add unit tests for `ApplyActions.tsx`, `ResumeManager.tsx`, `/api/resumes/route.ts`, `/api/settings/route.ts`. |
-| P2-05 | No tests for `/api/jobs/fetch` route | `tests/web/` | Add test covering auth check, URL validation, SSRF blocking, and success path. |
-| P2-06 | `web/lib/server.ts` silently ignores setAll cookie failure | `web/lib/server.ts:20-24` | Log a warning but also consider returning an error response when session refresh cookie cannot be written. |
-| P2-07 | No job delete or edit UI | Dashboard | Add delete button on job detail page (with confirmation). Not in V1 PRODUCT.md scope but improves usability. |
-| P2-08 | `lint` not included in `npm run qa` gate | `package.json` | Add `"qa": "npm run check && npm run lint && npm run smoke"` to enforce lint in the release gate. |
-| P2-09 | Extension has no popup error for missing `config.js` in production | `extension/popup.js` | Improve UX of `requireConfig()` error — currently throws a JS error, not a visible popup message. |
+| P2-01 | Jobs search and filtering missing (FR-021) | `web/app/dashboard/jobs/page.tsx` | Add client-side filter inputs for role, company, platform, remote type, ATS status. FR-021 uses "should" (non-mandatory). |
+| P2-02 | Resume limit not enforced (FR-027) | `web/app/api/resumes/route.ts` | Add `COUNT(*)` check before INSERT; return 422 if user already has 3 resumes of the same role type. |
+| P2-03 | No rate limiting on `/api/jobs/fetch` | `web/app/api/jobs/fetch/route.ts` | Add simple per-user rate limit (e.g. 10 req/min). Can use Vercel Edge middleware or in-memory map. |
+| P2-04 | `api_usage` missing `public.` prefix | `supabase/003_api_usage.sql` | Fix in a new migration: `ALTER TABLE api_usage SET SCHEMA public;` or recreate. |
+| P2-05 | Redundant `ADD COLUMN capture_method` in migration 001 | `supabase/001_create_jobs.sql` | Remove duplicate `ALTER TABLE ADD COLUMN IF NOT EXISTS capture_method` block (column already in CREATE TABLE). Cannot break existing DBs since it uses `IF NOT EXISTS`. |
+| P2-06 | No tests for AI components and APIs | `tests/` | Add tests for `ApplyActions.tsx` state machine, `ResumeManager.tsx` CRUD flows, `/api/resumes` auth check, `/api/settings` GET/POST, `/api/jobs/fetch` SSRF blocking. |
+| P2-07 | Missing ADRs for AI architecture additions | `docs/DECISIONS.md` | Add ADR-005 (AI pipeline), ADR-006 (resume management), ADR-007 (usage tracking), ADR-008 (provider router), ADR-009 (kill switch). |
+| P2-08 | No request timeout on URL fetch | `web/app/api/jobs/fetch/route.ts` | Add `AbortController` with 15-second timeout to the fetch call. |
+| P2-09 | Usage page has no error state | `web/app/dashboard/usage/page.tsx` | Add `if (error) return <p>{error.message}</p>` guard after Supabase query. |
+| P2-10 | `pip run qa` excludes lint | `package.json` | Change to `"qa": "npm run check && npm run lint && npm run smoke"` |
